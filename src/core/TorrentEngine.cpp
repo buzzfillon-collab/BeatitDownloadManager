@@ -12,6 +12,7 @@
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
 #include <libtorrent/magnet_uri.hpp>
+#include <libtorrent/resume_data.hpp>
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/torrent_info.hpp>
 
@@ -200,7 +201,6 @@ void TorrentEngine::saveOneResume(const QString &id, const lt::torrent_handle &h
 void TorrentEngine::saveResumeData() {
     for (auto it = torrents_.cbegin(); it != torrents_.cend(); ++it)
         saveOneResume(it.key(), it->handle);
-    if (session_) session_->save_state();
 }
 
 void TorrentEngine::persistStatus(const QString &id, const lt::torrent_status &status) {
@@ -213,7 +213,7 @@ void TorrentEngine::persistStatus(const QString &id, const lt::torrent_status &s
         copy.speed = status.download_rate;
         copy.status = status.is_finished
             ? QStringLiteral("Completed")
-            : (status.paused ? QStringLiteral("Paused") : QStringLiteral("Downloading"));
+            : (it->userPaused ? QStringLiteral("Paused") : QStringLiteral("Downloading"));
         database_->save(copy);
         return;
     }
