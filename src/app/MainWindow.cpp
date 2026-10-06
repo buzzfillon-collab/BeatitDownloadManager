@@ -380,6 +380,7 @@ void MainWindow::showSettings(){
     const QString id=selectedId();
     if(id.startsWith(QStringLiteral("torrent-"))){
         const auto files=torrentEngine_->torrentFiles(id);
+        const auto priorities=torrentEngine_->filePriorities(id);
         if(!files.isEmpty()){
             QDialog dialog(this);
             dialog.setWindowTitle(QStringLiteral("Selective torrent download"));
@@ -390,7 +391,7 @@ void MainWindow::showSettings(){
             auto *list=new QListWidget(&dialog);
             for(const auto &file:files){
                 auto *item=new QListWidgetItem(file,list);
-                item->setCheckState(Qt::Checked);
+                item->setCheckState(i < priorities.size() && priorities[i] == 0 ? Qt::Unchecked : Qt::Checked);
             }
             layout->addWidget(list,1);
             auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
