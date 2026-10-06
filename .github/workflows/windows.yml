@@ -14,11 +14,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache vcpkg
-        uses: actions/cache@v4
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
         with:
-          path: C:\vcpkg\installed
-          key: vcpkg-x64-windows-\${{ hashFiles('vcpkg.json') }}
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtbase
+          cache: true
 
       - name: Install vcpkg
         shell: pwsh
@@ -27,6 +31,12 @@ jobs:
             git clone --depth 1 https://github.com/microsoft/vcpkg.git C:\vcpkg
             & C:\vcpkg\bootstrap-vcpkg.bat
           }
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-x64-windows-${{ hashFiles('vcpkg.json') }}
 
       - name: Install dependencies
         shell: pwsh
@@ -45,9 +55,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force package | Out-Null
           Copy-Item build\Release\BeatitDownloadManager.exe package\
-          $windeployqt = Get-ChildItem C:\vcpkg\installed\x64-windows\tools -Recurse -Filter windeployqt.exe | Select-Object -First 1
-          if (-not $windeployqt) { throw "windeployqt.exe was not found." }
-          & $windeployqt.FullName --release --no-translations package\BeatitDownloadManager.exe
+          windeployqt --release --no-translations --no-system-d3d-compiler package\BeatitDownloadManager.exe
           Copy-Item C:\vcpkg\installed\x64-windows\bin\*.dll package\ -ErrorAction SilentlyContinue
 
       - name: Smoke test
@@ -56,7 +64,6 @@ jobs:
           $output = & package\BeatitDownloadManager.exe --version
           Write-Host $output
           if ($LASTEXITCODE -ne 0) { throw "Beatit failed its version smoke test." }
-          if (-not (Test-Path package\BeatitDownloadManager.exe)) { throw "Executable missing." }
 
       - name: Package portable ZIP
         shell: pwsh
