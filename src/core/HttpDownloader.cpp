@@ -150,9 +150,6 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,20L);
         curl_easy_setopt(curl,CURLOPT_USERAGENT,"BeatitDownloadManager/0.1 beta");
         curl_easy_setopt(curl,CURLOPT_NOSIGNAL,1L);
-        const CURLcode code=curl_easy_perform(curl);
-        long response=0; curl_easy_getinfo(curl,CURLINFO_RESPONSE_CODE,&response);
-        curl_off_t length=-1; curl_easy_getinfo(curl,CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,&length);
         HeaderContext headers;
         curl_easy_setopt(curl,CURLOPT_HEADERFUNCTION,headerCallback);
         curl_easy_setopt(curl,CURLOPT_HEADERDATA,&headers);
