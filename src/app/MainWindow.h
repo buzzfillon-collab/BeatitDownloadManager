@@ -3,7 +3,7 @@
 #include <QMainWindow>
 #include <QSystemTrayIcon>
 
-class QLabel; class QLineEdit; class QPushButton; class QTableWidget; class QCloseEvent;
+class QLabel; class QLineEdit; class QPushButton; class QTableWidget; class QCloseEvent; class QCheckBox;
 class QMenu; class DownloadManager; class TorrentEngine;
 
 class MainWindow final : public QMainWindow {
@@ -16,6 +16,7 @@ private slots:
     void addDownload();
     void pauseSelected();
     void cancelSelected();
+    void removeSelected();
     void openSelected();
     void showFromTray();
     void exitFromTray();
@@ -25,7 +26,7 @@ private:
     void setStatus(const QString &id, const QString &status);
     void setupTray();
     QLineEdit *urlEdit_; QPushButton *addButton_; QPushButton *pauseButton_;
-    QPushButton *cancelButton_; QPushButton *openButton_; QTableWidget *downloadsTable_;
+    QPushButton *cancelButton_; QPushButton *removeButton_; QPushButton *openButton_; QTableWidget *downloadsTable_;
     QLabel *statusLabel_; DownloadManager *downloadManager_; TorrentEngine *torrentEngine_;
     QSystemTrayIcon *trayIcon_; QMenu *trayMenu_;
     QHash<QString, QString> paths_; QHash<QString, int> rows_; bool reallyQuit_ = false;
