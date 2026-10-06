@@ -24,6 +24,17 @@
 namespace {
 QString formatBytes(qint64 b){if(b<1024)return QStringLiteral("%1 B").arg(b);double v=b;const QStringList u{"KB","MB","GB","TB"};int i=-1;do{v/=1024.0;++i;}while(v>=1024.0&&i+1<u.size());return QStringLiteral("%1 %2").arg(v,0,'f',v>=100?0:1).arg(u[i]);}
 QString formatSpeed(qint64 b){return b<=0?QStringLiteral("—"):formatBytes(b)+QStringLiteral("/s");}
+void tintRow(QTableWidget *table, int row, const QColor &tone) {
+    for (int col = 0; col < table->columnCount(); ++col)
+        if (auto *item = table->item(row, col)) item->setBackground(tone);
+}
+void accentRow(QTableWidget *table, int row, bool torrent) {
+    tintRow(table, row, QColor(torrent ? "#10271e" : "#102238"));
+    if (auto *file = table->item(row, 0))
+        file->setForeground(QColor(torrent ? "#62d89b" : "#67a9ff"));
+    if (auto *status = table->item(row, 1))
+        status->setForeground(QColor(torrent ? "#62d89b" : "#67a9ff"));
+}
 QIcon beatitIcon(){QPixmap x(64,64);x.fill(Qt::transparent);QPainter p(&x);p.setRenderHint(QPainter::Antialiasing);p.setBrush(QColor("#7c5cff"));p.setPen(Qt::NoPen);p.drawRoundedRect(4,4,56,56,16,16);p.setPen(QPen(Qt::white,7,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));p.drawLine(20,18,20,46);p.drawLine(20,18,39,18);p.drawLine(20,32,35,32);p.drawLine(20,46,41,46);return QIcon(x);}
 }
 
@@ -73,6 +84,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
         downloadsTable_->setItem(row,2,new QTableWidgetItem("0%"));downloadsTable_->setItem(row,3,new QTableWidgetItem("—"));
         downloadsTable_->setItem(row,4,new QTableWidgetItem(url));
         auto *date=new QTableWidgetItem(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))); date->setData(Qt::UserRole,QDateTime::currentSecsSinceEpoch()); downloadsTable_->setItem(row,5,date);
+        accentRow(downloadsTable_, row, false);
     });
     connect(downloadManager_,&DownloadManager::taskRestored,this,[this](const QString&id,const QString&url,const QString&filename,const QString&status,qint64 done,qint64 total,qint64 updatedAt){
         const int row=downloadsTable_->rowCount();downloadsTable_->insertRow(row);
@@ -80,6 +92,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
         downloadsTable_->setItem(row,1,new QTableWidgetItem(status));downloadsTable_->setItem(row,2,new QTableWidgetItem(total>0?QStringLiteral("%1%").arg(done*100/total):formatBytes(done)));
         downloadsTable_->setItem(row,3,new QTableWidgetItem("—"));downloadsTable_->setItem(row,4,new QTableWidgetItem(url));
         const auto ts=updatedAt>0?updatedAt:QDateTime::currentSecsSinceEpoch(); auto *date=new QTableWidgetItem(QDateTime::fromSecsSinceEpoch(ts).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))); date->setData(Qt::UserRole,ts); downloadsTable_->setItem(row,5,date);
+        accentRow(downloadsTable_, row, false);
     });
     connect(downloadManager_,&DownloadManager::taskStarted,this,[this](const QString&id,const QString&f,qint64 total){
         const int row=rowForId(id);if(row<0)return;downloadsTable_->item(row,0)->setText(f);
@@ -89,6 +102,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
         const int row=rowForId(id);if(row<0)return;
         downloadsTable_->item(row,2)->setText(total>0?QStringLiteral("%1%").arg(done*100/total):formatBytes(done));
         downloadsTable_->item(row,3)->setText(formatSpeed(speed));statusLabel_->setText(QStringLiteral("%1 downloaded").arg(formatBytes(done)));
+        accentRow(downloadsTable_, row, true);
     });
     connect(downloadManager_,&DownloadManager::taskPaused,this,[this](const QString&id,qint64 done){setStatus(id,"Paused");statusLabel_->setText(QStringLiteral("Paused at %1").arg(formatBytes(done)));});
     connect(downloadManager_,&DownloadManager::taskCompleted,this,[this](const QString&id,const QString&path){paths_[id]=path;setStatus(id,"Completed"); if(const int row=rowForId(id);row>=0){auto *date=downloadsTable_->item(row,5);if(date){const auto ts=QDateTime::currentSecsSinceEpoch();date->setText(QDateTime::fromSecsSinceEpoch(ts).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));date->setData(Qt::UserRole,ts);}}trayIcon_->showMessage("Beatit","Download complete");});
@@ -96,21 +110,55 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     connect(downloadManager_,&DownloadManager::taskCancelled,this,[this](const QString&id){setStatus(id,"Cancelled");});
     connect(downloadManager_,&DownloadManager::taskRemoved,this,[this](const QString&id){ const int row=rowForId(id); if(row<0)return; downloadsTable_->removeRow(row); statusLabel_->setText("Removed"); });
 
+    connect(torrentEngine_,&TorrentEngine::torrentHistoryRestored,this,[this](const QString&id,const QString&name,const QString&source,const QString&status,qint64 done,qint64 total,qint64 updatedAt){
+        const int existingRow=rowForId(id);
+        const int row=existingRow>=0?existingRow:downloadsTable_->rowCount();
+        if(existingRow<0) downloadsTable_->insertRow(row);
+        auto*f=downloadsTable_->item(row,0);
+        if(!f){f=new QTableWidgetItem;downloadsTable_->setItem(row,0,f);}
+        f->setText(name.isEmpty()?QStringLiteral("Torrent"):name);f->setData(Qt::UserRole,id);
+        downloadsTable_->setItem(row,1,new QTableWidgetItem(status));
+        downloadsTable_->setItem(row,2,new QTableWidgetItem(total>0?QStringLiteral("%1%").arg(done*100/total):QStringLiteral("0%")));
+        downloadsTable_->setItem(row,3,new QTableWidgetItem("—"));
+        downloadsTable_->setItem(row,4,new QTableWidgetItem(source.isEmpty()?QStringLiteral("BitTorrent"):source));
+        const auto ts=updatedAt>0?updatedAt:QDateTime::currentSecsSinceEpoch();
+        auto*date=new QTableWidgetItem(QDateTime::fromSecsSinceEpoch(ts).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));date->setData(Qt::UserRole,ts);
+        downloadsTable_->setItem(row,5,date);accentRow(downloadsTable_,row,true);
+    });
+
+    connect(torrentEngine_,&TorrentEngine::torrentRemoved,this,[this](const QString&id){
+        const int row=rowForId(id); if(row>=0) downloadsTable_->removeRow(row);
+    });
+
     connect(torrentEngine_,&TorrentEngine::torrentAdded,this,[this](const QString&id,const QString&name){
         const int existingRow=rowForId(id);
-        if(existingRow>=0){downloadsTable_->item(existingRow,0)->setText(name);return;}
+        if(existingRow>=0){
+            downloadsTable_->item(existingRow,0)->setText(name);
+            accentRow(downloadsTable_, existingRow, true);
+            return;
+        }
         const int row=downloadsTable_->rowCount();downloadsTable_->insertRow(row);
         auto*f=new QTableWidgetItem(name);f->setData(Qt::UserRole,id);downloadsTable_->setItem(row,0,f);
         downloadsTable_->setItem(row,1,new QTableWidgetItem("Torrent"));downloadsTable_->setItem(row,2,new QTableWidgetItem("0%"));
         downloadsTable_->setItem(row,3,new QTableWidgetItem("—"));downloadsTable_->setItem(row,4,new QTableWidgetItem("BitTorrent"));
-        auto *date=new QTableWidgetItem(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))); date->setData(Qt::UserRole,QDateTime::currentSecsSinceEpoch()); downloadsTable_->setItem(row,5,date);
+        auto *date=new QTableWidgetItem(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))); date->setData(Qt::UserRole,QDateTime::currentSecsSinceEpoch()); downloadsTable_->setItem(row,5,date);accentRow(downloadsTable_,row,true);
     });
     connect(torrentEngine_,&TorrentEngine::torrentProgress,this,[this](const QString&id,int progress,qint64 done,qint64,qint64 down,qint64,int peers){
         const int row=rowForId(id);if(row<0)return;downloadsTable_->item(row,1)->setText(QStringLiteral("Torrent • %1 peers").arg(peers));
         downloadsTable_->item(row,2)->setText(QStringLiteral("%1%").arg(progress));downloadsTable_->item(row,3)->setText(formatSpeed(down));
         statusLabel_->setText(QStringLiteral("%1 downloaded").arg(formatBytes(done)));
     });
-    connect(torrentEngine_,&TorrentEngine::torrentCompleted,this,[this](const QString&id){setStatus(id,"Completed");trayIcon_->showMessage("Beatit","Torrent completed");});
+    connect(torrentEngine_,&TorrentEngine::torrentCompleted,this,[this](const QString&id){
+        setStatus(id,"Completed");
+        const int row=rowForId(id);
+        if(row>=0){
+            const auto ts=QDateTime::currentSecsSinceEpoch();
+            auto *date=downloadsTable_->item(row,5);
+            if(date){date->setText(QDateTime::fromSecsSinceEpoch(ts).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));date->setData(Qt::UserRole,ts);}
+            accentRow(downloadsTable_,row,true);
+        }
+        trayIcon_->showMessage("Beatit","Torrent completed");
+    });
     connect(torrentEngine_,&TorrentEngine::torrentError,this,[this](const QString&,const QString&e){trayIcon_->showMessage("Beatit",e,QSystemTrayIcon::Warning);});
 }
 void MainWindow::setupTray(){trayIcon_->setIcon(windowIcon());trayIcon_->setToolTip("Beatit Download Manager");trayMenu_->addAction("Show Beatit",this,&MainWindow::showFromTray);trayMenu_->addSeparator();trayMenu_->addAction("Exit",this,&MainWindow::exitFromTray);trayIcon_->setContextMenu(trayMenu_);connect(trayIcon_,&QSystemTrayIcon::activated,this,[this](QSystemTrayIcon::ActivationReason r){if(r==QSystemTrayIcon::DoubleClick||r==QSystemTrayIcon::Trigger)showFromTray();});trayIcon_->show();}
