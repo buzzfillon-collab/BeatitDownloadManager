@@ -1,85 +1,159 @@
 #include "DownloadManager.h"
 #include "HttpDownloader.h"
 
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QThread>
+#include <QTimer>
+#include <QUrl>
 
-DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {}
+DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
+    database_.open();
+    for (const auto &stored : database_.loadActive()) {
+        auto d = stored;
+        if (d.status == QStringLiteral("Downloading") || d.status == QStringLiteral("Starting"))
+            d.status = QStringLiteral("Queued");
+        queued_.insert(d.id, d);
+        bool ok = false;
+        const int n = d.id.startsWith(QStringLiteral("download-"))
+            ? d.id.mid(QStringLiteral("download-").size()).toInt(&ok) : 0;
+        if (ok) nextId_ = qMax(nextId_, n + 1);
+    }
+    QTimer::singleShot(0, this, [this] {
+        for (const auto &d : queued_)
+            emit taskRestored(d.id, d.source, d.filename, d.status, d.downloadedBytes, d.totalBytes);
+        startNextQueued();
+    });
+}
 
 DownloadManager::~DownloadManager() {
     const auto ids = active_.keys();
     for (const QString &id : ids) cancel(id);
-
     const auto tasks = active_;
-    for (auto it = tasks.cbegin(); it != tasks.cend(); ++it) {
-        if (it->thread)
-            it->thread->wait(5000);
-    }
+    for (auto it = tasks.cbegin(); it != tasks.cend(); ++it)
+        if (it->thread) it->thread->wait(5000);
+}
+
+void DownloadManager::persist(const QString &id, const QString &status, qint64 downloaded,
+                              qint64 total, qint64 speed, const QString &error) {
+    auto it = queued_.find(id);
+    if (it == queued_.end()) return;
+    it->status = status;
+    if (downloaded >= 0) it->downloadedBytes = downloaded;
+    if (total >= 0) it->totalBytes = total;
+    it->speed = speed;
+    it->error = error;
+    database_.save(it.value());
+}
+
+void DownloadManager::setMaxActive(int count) {
+    maxActive_ = qMax(1, count);
+    startNextQueued();
 }
 
 QString DownloadManager::addUrl(const QString &url, const QString &destination) {
     const QString id = QStringLiteral("download-%1").arg(nextId_++);
-
-    auto *thread = new QThread(this);
-    auto *downloader = new HttpDownloader();
-    downloader->moveToThread(thread);
-
-    active_.insert(id, ActiveTask{url, destination, downloader, thread});
-
-    connect(thread, &QThread::started, downloader, [downloader, url, destination] {
-        downloader->start(url, destination);
-    });
-
-    connect(downloader, &HttpDownloader::started, this,
-        [this, id](const QString &filename, qint64 total, bool) {
-            emit taskStarted(id, filename, total);
-        });
-
-    connect(downloader, &HttpDownloader::progress, this,
-        [this, id](qint64 done, qint64 total, qint64 speed) {
-            emit taskProgress(id, done, total, speed);
-        });
-
-    auto stopThread = [this, id] {
-        if (auto it = active_.find(id); it != active_.end())
-            it->thread->quit();
-    };
-
-    connect(downloader, &HttpDownloader::paused, this,
-        [this, id, stopThread](qint64 done) {
-            emit taskPaused(id, done);
-            stopThread();
-        });
-
-    connect(downloader, &HttpDownloader::completed, this,
-        [this, id, stopThread](const QString &path) {
-            emit taskCompleted(id, path);
-            stopThread();
-        });
-
-    connect(downloader, &HttpDownloader::failed, this,
-        [this, id, stopThread](const QString &error) {
-            emit taskFailed(id, error);
-            stopThread();
-        });
-
-    connect(downloader, &HttpDownloader::cancelled, this,
-        [this, id, stopThread] {
-            emit taskCancelled(id);
-            stopThread();
-        });
-
-    connect(thread, &QThread::finished, downloader, &QObject::deleteLater);
-    connect(thread, &QThread::finished, this, [this, id] {
-        if (auto it = active_.find(id); it != active_.end()) {
-            it->thread->deleteLater();
-            active_.erase(it);
-        }
-    });
-
+    PersistedDownload d;
+    d.id = id;
+    d.type = QStringLiteral("http");
+    d.source = url;
+    d.destination = destination;
+    d.filename = QUrl(url).fileName();
+    if (d.filename.isEmpty()) d.filename = QStringLiteral("download");
+    d.status = QStringLiteral("Queued");
+    queued_.insert(id, d);
+    database_.save(d);
     emit taskAdded(id, url);
-    thread->start();
+    startNextQueued();
     return id;
+}
+
+void DownloadManager::startNextQueued() {
+    while (active_.size() < maxActive_) {
+        QString id;
+        for (auto it = queued_.cbegin(); it != queued_.cend(); ++it) {
+            if (it->status == QStringLiteral("Queued")) {
+                id = it.key();
+                break;
+            }
+        }
+        if (id.isEmpty()) return;
+
+        const auto d = queued_.value(id);
+        queued_[id].status = QStringLiteral("Starting");
+        database_.save(queued_[id]);
+
+        auto *thread = new QThread(this);
+        auto *downloader = new HttpDownloader();
+        downloader->moveToThread(thread);
+        active_.insert(id, ActiveTask{d.source, d.destination, downloader, thread});
+
+        connect(thread, &QThread::started, downloader, [downloader, d] {
+            downloader->start(d.source, d.destination);
+        });
+
+        connect(downloader, &HttpDownloader::started, this,
+            [this, id](const QString &filename, qint64 total, bool) {
+                queued_[id].filename = filename;
+                queued_[id].status = QStringLiteral("Downloading");
+                queued_[id].totalBytes = total;
+                database_.save(queued_[id]);
+                emit taskStarted(id, filename, total);
+            });
+
+        connect(downloader, &HttpDownloader::progress, this,
+            [this, id](qint64 done, qint64 total, qint64 speed) {
+                persist(id, QStringLiteral("Downloading"), done, total, speed);
+                emit taskProgress(id, done, total, speed);
+            });
+
+        auto stopThread = [this, id] {
+            if (auto it = active_.find(id); it != active_.end())
+                it->thread->quit();
+        };
+
+        connect(downloader, &HttpDownloader::paused, this,
+            [this, id, stopThread](qint64 done) {
+                persist(id, QStringLiteral("Paused"), done, queued_.value(id).totalBytes);
+                emit taskPaused(id, done);
+                stopThread();
+            });
+
+        connect(downloader, &HttpDownloader::completed, this,
+            [this, id, stopThread](const QString &path) {
+                const qint64 size = QFileInfo(path).size();
+                persist(id, QStringLiteral("Completed"), size, size);
+                emit taskCompleted(id, path);
+                stopThread();
+            });
+
+        connect(downloader, &HttpDownloader::failed, this,
+            [this, id, stopThread](const QString &error) {
+                persist(id, QStringLiteral("Failed"), queued_.value(id).downloadedBytes,
+                        queued_.value(id).totalBytes, 0, error);
+                emit taskFailed(id, error);
+                stopThread();
+            });
+
+        connect(downloader, &HttpDownloader::cancelled, this,
+            [this, id, stopThread] {
+                persist(id, QStringLiteral("Cancelled"), queued_.value(id).downloadedBytes,
+                        queued_.value(id).totalBytes);
+                emit taskCancelled(id);
+                stopThread();
+            });
+
+        connect(thread, &QThread::finished, downloader, &QObject::deleteLater);
+        connect(thread, &QThread::finished, this, [this, id] {
+            if (auto it = active_.find(id); it != active_.end()) {
+                it->thread->deleteLater();
+                active_.erase(it);
+            }
+            startNextQueued();
+        });
+
+        thread->start();
+    }
 }
 
 void DownloadManager::pause(const QString &id) {
@@ -87,7 +161,22 @@ void DownloadManager::pause(const QString &id) {
         QMetaObject::invokeMethod(it->downloader, "pause", Qt::DirectConnection);
 }
 
+void DownloadManager::resume(const QString &id) {
+    if (auto it = queued_.find(id); it != queued_.end()) {
+        it->status = QStringLiteral("Queued");
+        database_.save(it.value());
+        startNextQueued();
+    }
+}
+
 void DownloadManager::cancel(const QString &id) {
-    if (auto it = active_.find(id); it != active_.end())
+    if (auto it = active_.find(id); it != active_.end()) {
         QMetaObject::invokeMethod(it->downloader, "cancel", Qt::DirectConnection);
+        return;
+    }
+    if (queued_.contains(id)) {
+        queued_[id].status = QStringLiteral("Cancelled");
+        database_.save(queued_[id]);
+        emit taskCancelled(id);
+    }
 }
