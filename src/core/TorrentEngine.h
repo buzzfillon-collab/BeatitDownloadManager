@@ -32,6 +32,7 @@ signals:
                          qint64 downloadRate, qint64 uploadRate, int peers);
     void torrentCompleted(const QString &id);
     void torrentError(const QString &id, const QString &error);
+    void torrentAvailabilityQuestion(const QString &id, const QString &name, double distributedCopies, int peers);
 
 private slots:
     void pollAlerts();
@@ -44,11 +45,14 @@ private:
         bool completedNotified = false;
         bool userPaused = false;
         bool scheduled = false;
+        bool availabilityPrompted = false;
+        bool availabilityOverride = false;
     };
 
     void scheduleTorrents();
     void saveOneResume(const QString &id, const lt::torrent_handle &handle);
     void persistStatus(const QString &id, const lt::torrent_status &status);
+    bool wholeFileAvailable(const lt::torrent_status &status) const;
 
     std::unique_ptr<lt::session> session_;
     QTimer alertTimer_;
