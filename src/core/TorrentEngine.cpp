@@ -7,6 +7,7 @@
 #include <QStandardPaths>
 #include <QThread>
 #include <QDateTime>
+#include <QFileInfo>
 
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
@@ -167,15 +168,25 @@ void TorrentEngine::resume(const QString &id) {
 
 void TorrentEngine::remove(const QString &id, bool deleteFiles) {
     auto it = torrents_.find(id);
-    if (it == torrents_.end()) return;
-
-    if (it->handle.is_valid())
-        session_->remove_torrent(
-            it->handle,
-            deleteFiles ? lt::session_handle::delete_files : lt::remove_flags_t{});
+    if (it != torrents_.end()) {
+        if (it->handle.is_valid())
+            session_->remove_torrent(
+                it->handle,
+                deleteFiles ? lt::session_handle::delete_files : lt::remove_flags_t{});
+        torrents_.erase(it);
+    } else if (deleteFiles && database_) {
+        for (const auto &d : database_->loadHistory()) {
+            if (d.id != id || d.type != QStringLiteral("torrent")) continue;
+            if (!d.destination.isEmpty() && !d.filename.isEmpty()) {
+                const QString root = QDir(d.destination).filePath(d.filename);
+                if (QFileInfo(root).isFile()) QFile::remove(root);
+                else if (QFileInfo(root).isDir()) QDir(root).removeRecursively();
+            }
+            break;
+        }
+    }
 
     QFile::remove(resumeDirectory_ + "/" + id + ".resume");
-    torrents_.erase(it);
     if (database_) database_->remove(id);
     emit torrentRemoved(id);
     scheduleTorrents();
@@ -192,6 +203,22 @@ void TorrentEngine::saveResumeData() {
     if (session_) session_->save_state();
 }
 
+void TorrentEngine::persistStatus(const QString &id, const lt::torrent_status &status) {
+    if (!database_) return;
+    for (const auto &d : database_->loadHistory()) {
+        if (d.id != id) continue;
+        auto copy = d;
+        copy.downloadedBytes = status.total_done;
+        copy.totalBytes = status.total_wanted;
+        copy.speed = status.download_rate;
+        copy.status = status.is_finished
+            ? QStringLiteral("Completed")
+            : (status.paused ? QStringLiteral("Paused") : QStringLiteral("Downloading"));
+        database_->save(copy);
+        return;
+    }
+}
+
 void TorrentEngine::restoreResumeData() {
     if (database_) {
         for (const auto &d : database_->loadHistory()) {
@@ -199,6 +226,14 @@ void TorrentEngine::restoreResumeData() {
                 emit torrentHistoryRestored(d.id, d.filename, d.source, d.status,
                                             d.downloadedBytes, d.totalBytes, d.updatedAt);
         }
+    }
+
+    const auto history = database_ ? database_->loadHistory() : QVector<PersistedDownload>{};
+    for (const auto &d : history) {
+        if (d.type != QStringLiteral("torrent")) continue;
+        bool ok = false;
+        const int n = d.id.mid(QStringLiteral("torrent-").size()).toInt(&ok);
+        if (ok) nextId_ = qMax(nextId_, n + 1);
     }
 
     QDir dir(resumeDirectory_);
@@ -227,20 +262,31 @@ void TorrentEngine::restoreResumeData() {
         if (ok) nextId_ = qMax(nextId_, n + 1);
         if (torrents_.contains(id))
             id = makeId(nextId_++);
-        torrents_.insert(id, TorrentEntry{id, handle, false, false, false});
-        const QString name = QString::fromStdString(handle.status().name);
+        bool wasPaused = false;
+        for (const auto &d : history) if (d.id == id) {
+            wasPaused = d.status == QStringLiteral("Paused");
+            break;
+        }
+        torrents_.insert(id, TorrentEntry{id, handle, false, wasPaused, false});
+        const auto restoredStatus = handle.status();
+        const QString name = QString::fromStdString(restoredStatus.name);
         const QString displayName = name.isEmpty() ? QStringLiteral("Torrent") : name;
         if (database_) {
-            auto rows = database_->loadHistory();
             bool found = false;
-            for (const auto &d : rows) if (d.id == id) {
-                auto copy = d; copy.filename = displayName; copy.status = QStringLiteral("Queued");
+            for (const auto &d : history) if (d.id == id) {
+                auto copy = d;
+                copy.filename = displayName;
+                copy.status = restoredStatus.is_finished ? QStringLiteral("Completed")
+                                                          : (wasPaused ? QStringLiteral("Paused") : QStringLiteral("Queued"));
+                copy.downloadedBytes = restoredStatus.total_done;
+                copy.totalBytes = restoredStatus.total_wanted;
                 database_->save(copy); found = true; break;
             }
             if (!found) {
                 PersistedDownload d; d.id=id; d.type=QStringLiteral("torrent");
                 d.source=QStringLiteral("resume://") + id; d.destination=QString();
-                d.filename=displayName; d.status=QStringLiteral("Queued");
+                d.filename=displayName; d.status=restoredStatus.is_finished ? QStringLiteral("Completed") : QStringLiteral("Queued");
+                d.downloadedBytes = restoredStatus.total_done; d.totalBytes = restoredStatus.total_wanted;
                 database_->save(d);
             }
         }
@@ -251,22 +297,33 @@ void TorrentEngine::restoreResumeData() {
 }
 
 void TorrentEngine::scheduleTorrents() {
-    int active = 0;
+    int activeDownloads = 0;
 
     for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
-        if (it->userPaused || it->handle.status().is_finished) {
-            if (it->scheduled && it->handle.is_valid()) it->handle.pause();
+        if (!it->handle.is_valid()) continue;
+        const auto status = it->handle.status();
+        if (it->userPaused) {
             it->scheduled = false;
-        } else if (it->scheduled && !it->handle.status().paused) {
-            ++active;
+            if (!status.paused) it->handle.pause();
+            continue;
         }
+        if (!status.is_finished && it->scheduled && !status.paused)
+            ++activeDownloads;
+        if (status.is_finished && !status.paused)
+            it->scheduled = true;
     }
 
-    for (auto it = torrents_.begin(); it != torrents_.end() && active < maxActiveDownloads_; ++it) {
-        if (it->userPaused || it->handle.status().is_finished || it->scheduled) continue;
+    for (auto it = torrents_.begin(); it != torrents_.end() && activeDownloads < maxActiveDownloads_; ++it) {
+        if (it->userPaused || !it->handle.is_valid() || it->scheduled) continue;
+        const auto status = it->handle.status();
+        if (status.is_finished) {
+            it->scheduled = true;
+            it->handle.resume();
+            continue;
+        }
         it->scheduled = true;
         it->handle.resume();
-        ++active;
+        ++activeDownloads;
     }
 }
 
@@ -317,6 +374,10 @@ void TorrentEngine::pollAlerts() {
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     const bool writeDatabase = (now != lastDatabaseWrite);
     if (writeDatabase) lastDatabaseWrite = now;
+    if (now - lastResumeSave_ >= 30) {
+        saveResumeData();
+        lastResumeSave_ = now;
+    }
 
     for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
         auto &entry = it.value();
@@ -327,20 +388,7 @@ void TorrentEngine::pollAlerts() {
             status.total_done, status.total_wanted, status.download_rate,
             status.upload_rate, status.num_peers);
 
-        if (writeDatabase && database_) {
-            auto rows = database_->loadHistory();
-            for (const auto &d : rows) if (d.id == it.key()) {
-                auto copy = d;
-                copy.downloadedBytes = status.total_done;
-                copy.totalBytes = status.total_wanted;
-                copy.speed = status.download_rate;
-                copy.status = status.is_finished ? QStringLiteral("Completed")
-                                                 : (status.paused ? QStringLiteral("Paused")
-                                                                  : QStringLiteral("Downloading"));
-                database_->save(copy);
-                break;
-            }
-        }
+        if (writeDatabase) persistStatus(it.key(), status);
 
         if (status.is_finished && !entry.completedNotified) {
             entry.completedNotified = true;
