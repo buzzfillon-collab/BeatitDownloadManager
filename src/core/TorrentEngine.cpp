@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QStandardPaths>
+#include <QThread>
 
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
@@ -38,6 +39,10 @@ TorrentEngine::TorrentEngine(QObject *parent) : QObject(parent) {
 
 TorrentEngine::~TorrentEngine() {
     saveResumeData();
+    for (int i = 0; i < 20; ++i) {
+        QThread::msleep(50);
+        pollAlerts();
+    }
     alertTimer_.stop();
     if (session_) session_->pause();
 }
@@ -120,6 +125,7 @@ void TorrentEngine::pause(const QString &id) {
     it->scheduled = false;
     it->handle.pause();
     saveOneResume(id, it->handle);
+    scheduleTorrents();
 }
 
 void TorrentEngine::resume(const QString &id) {
@@ -174,8 +180,15 @@ void TorrentEngine::restoreResumeData() {
         auto handle = session_->add_torrent(std::move(atp), ec);
         if (ec) continue;
 
-        const QString id = makeId(nextId_++);
-        torrents_.insert(id, TorrentEntry{id, handle, false, false, true});
+        QString id = QFileInfo(file).completeBaseName();
+        if (!id.startsWith(QStringLiteral("torrent-")))
+            id = makeId(nextId_++);
+        bool ok = false;
+        const int n = id.mid(QStringLiteral("torrent-").size()).toInt(&ok);
+        if (ok) nextId_ = qMax(nextId_, n + 1);
+        if (torrents_.contains(id))
+            id = makeId(nextId_++);
+        torrents_.insert(id, TorrentEntry{id, handle, false, false, false});
         const QString name = QString::fromStdString(handle.status().name);
         emit torrentAdded(id, name.isEmpty() ? QStringLiteral("Torrent") : name);
     }
