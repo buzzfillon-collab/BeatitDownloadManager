@@ -9,6 +9,7 @@
 
 DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
     database_.open();
+
     for (const auto &stored : database_.loadActive()) {
         auto d = stored;
         if (d.status == QStringLiteral("Downloading") || d.status == QStringLiteral("Starting"))
@@ -19,6 +20,7 @@ DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
             ? d.id.mid(QStringLiteral("download-").size()).toInt(&ok) : 0;
         if (ok) nextId_ = qMax(nextId_, n + 1);
     }
+
     QTimer::singleShot(0, this, [this] {
         for (const auto &d : queued_)
             emit taskRestored(d.id, d.source, d.filename, d.status, d.downloadedBytes, d.totalBytes);
