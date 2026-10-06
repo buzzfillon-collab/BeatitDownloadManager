@@ -9,6 +9,12 @@ DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {}
 DownloadManager::~DownloadManager() {
     const auto ids = active_.keys();
     for (const QString &id : ids) cancel(id);
+
+    const auto tasks = active_;
+    for (auto it = tasks.cbegin(); it != tasks.cend(); ++it) {
+        if (it->thread)
+            it->thread->wait(5000);
+    }
 }
 
 QString DownloadManager::addUrl(const QString &url, const QString &destination) {
