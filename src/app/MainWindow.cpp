@@ -30,6 +30,7 @@ QIcon beatitIcon(){QPixmap x(64,64);x.fill(Qt::transparent);QPainter p(&x);p.set
 MainWindow::MainWindow(QWidget *parent):QMainWindow(parent),
 urlEdit_(new QLineEdit(this)),addButton_(new QPushButton(QStringLiteral("＋ Add"),this)),
 pauseButton_(new QPushButton(QStringLiteral("Pause"),this)),cancelButton_(new QPushButton(QStringLiteral("Cancel"),this)),
+removeButton_(new QPushButton(QStringLiteral("Remove"),this)),
 openButton_(new QPushButton(QStringLiteral("Open"),this)),downloadsTable_(new QTableWidget(this)),
 statusLabel_(new QLabel(QStringLiteral("Ready"),this)),downloadManager_(new DownloadManager(this)),
 torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
@@ -66,7 +67,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     });
 
     connect(downloadManager_,&DownloadManager::taskAdded,this,[this](const QString&id,const QString&url){
-        const int row=downloadsTable_->rowCount();downloadsTable_->insertRow(row);rows_[id]=row;
+        const int row=downloadsTable_->rowCount();downloadsTable_->insertRow(row);
         auto*f=new QTableWidgetItem(QUrl(url).fileName().isEmpty()?"download":QUrl(url).fileName());f->setData(Qt::UserRole,id);
         downloadsTable_->setItem(row,0,f);downloadsTable_->setItem(row,1,new QTableWidgetItem("Queued"));
         downloadsTable_->setItem(row,2,new QTableWidgetItem("0%"));downloadsTable_->setItem(row,3,new QTableWidgetItem("—"));
@@ -74,13 +75,13 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
         auto *date=new QTableWidgetItem(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))); date->setData(Qt::UserRole,QDateTime::currentSecsSinceEpoch()); downloadsTable_->setItem(row,5,date);
     });
     connect(downloadManager_,&DownloadManager::taskRestored,this,[this](const QString&id,const QString&url,const QString&filename,const QString&status,qint64 done,qint64 total,qint64 updatedAt){
-        const int row=downloadsTable_->rowCount();downloadsTable_->insertRow(row);rows_[id]=row;
+        const int row=downloadsTable_->rowCount();downloadsTable_->insertRow(row);
         auto*f=new QTableWidgetItem(filename);f->setData(Qt::UserRole,id);downloadsTable_->setItem(row,0,f);
         downloadsTable_->setItem(row,1,new QTableWidgetItem(status));downloadsTable_->setItem(row,2,new QTableWidgetItem(total>0?QStringLiteral("%1%").arg(done*100/total):formatBytes(done)));
         downloadsTable_->setItem(row,3,new QTableWidgetItem("—"));downloadsTable_->setItem(row,4,new QTableWidgetItem(url));
     });
     connect(downloadManager_,&DownloadManager::taskStarted,this,[this](const QString&id,const QString&f,qint64 total){
-        const int row=rows_.value(id,-1);if(row<0)return;downloadsTable_->item(row,0)->setText(f);
+        const int row=rowForId(id);if(row<0)return;downloadsTable_->item(row,0)->setText(f);
         downloadsTable_->item(row,1)->setText("Downloading");downloadsTable_->item(row,2)->setText(total>0?"0%":"Live");
     });
     connect(downloadManager_,&DownloadManager::taskProgress,this,[this](const QString&id,qint64 done,qint64 total,qint64 speed){
@@ -92,10 +93,10 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     connect(downloadManager_,&DownloadManager::taskCompleted,this,[this](const QString&id,const QString&path){paths_[id]=path;setStatus(id,"Completed");trayIcon_->showMessage("Beatit","Download complete");});
     connect(downloadManager_,&DownloadManager::taskFailed,this,[this](const QString&id,const QString&e){setStatus(id,"Failed");trayIcon_->showMessage("Beatit",e,QSystemTrayIcon::Warning);});
     connect(downloadManager_,&DownloadManager::taskCancelled,this,[this](const QString&id){setStatus(id,"Cancelled");});
-    connect(downloadManager_,&DownloadManager::taskRemoved,this,[this](const QString&id){ const int row=rows_.value(id,-1); if(row<0)return; downloadsTable_->removeRow(row); rows_.remove(id); for(auto it=rows_.begin();it!=rows_.end();++it) if(it.value()>row)--it.value(); statusLabel_->setText("Removed"); });
+    connect(downloadManager_,&DownloadManager::taskRemoved,this,[this](const QString&id){ const int row=rowForId(id); if(row<0)return; downloadsTable_->removeRow(row); statusLabel_->setText("Removed"); });
 
     connect(torrentEngine_,&TorrentEngine::torrentAdded,this,[this](const QString&id,const QString&name){
-        const int existingRow=rows_.value(id,-1);
+        const int existingRow=rowForId(id);
         if(existingRow>=0){downloadsTable_->item(existingRow,0)->setText(name);return;}
         const int row=downloadsTable_->rowCount();downloadsTable_->insertRow(row);rows_[id]=row;
         auto*f=new QTableWidgetItem(name);f->setData(Qt::UserRole,id);downloadsTable_->setItem(row,0,f);
@@ -116,7 +117,8 @@ void MainWindow::showFromTray(){showNormal();raise();activateWindow();}
 void MainWindow::exitFromTray(){reallyQuit_=true;close();}
 int MainWindow::selectedRow()const{auto r=downloadsTable_->selectedRanges();return r.isEmpty()?-1:r.first().topRow();}
 QString MainWindow::selectedId()const{const int row=selectedRow();return row<0||!downloadsTable_->item(row,0)?QString():downloadsTable_->item(row,0)->data(Qt::UserRole).toString();}
-void MainWindow::setStatus(const QString&id,const QString&status){const int row=rows_.value(id,-1);if(row>=0)downloadsTable_->item(row,1)->setText(status);}
+void MainWindow::setStatus(const QString&id,const QString&status){const int row=rowForId(id);if(row>=0)downloadsTable_->item(row,1)->setText(status);}
+int MainWindow::rowForId(const QString&id)const{for(int row=0;row<downloadsTable_->rowCount();++row)if(downloadsTable_->item(row,0)&&downloadsTable_->item(row,0)->data(Qt::UserRole).toString()==id)return row;return -1;}
 void MainWindow::addDownload(){
     const QString url=urlEdit_->text().trimmed();
     if(url.startsWith("magnet:?")){torrentEngine_->addMagnet(url,QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));urlEdit_->clear();statusLabel_->setText("Adding torrent…");return;}
