@@ -7,6 +7,7 @@
 #include <QUrl>
 #include <chrono>
 #include <future>
+#include <thread>
 #include <curl/curl.h>
 #include <mutex>
 
@@ -86,6 +87,9 @@ struct SegmentContext {
     qint64 expected{};
     qint64 written{};
     qint64 globalBase{};
+    std::atomic<qint64> *aggregate{};
+    std::atomic<qint64> *lastReportBytes{};
+    std::atomic<qint64> *lastReportMs{};
 };
 size_t segmentWrite(char *ptr,size_t size,size_t nmemb,void *userdata) {
     auto *ctx=static_cast<SegmentContext*>(userdata);
@@ -93,18 +97,32 @@ size_t segmentWrite(char *ptr,size_t size,size_t nmemb,void *userdata) {
     const qint64 n=ctx->file->write(ptr,bytes);
     if(n<=0) return 0;
     ctx->written+=n;
+    if (ctx->aggregate) {
+        const qint64 aggregateNow = ctx->aggregate->fetch_add(n) + n;
+        const qint64 nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        qint64 lastMs = ctx->lastReportMs->load();
+        if (nowMs - lastMs >= 500 && ctx->lastReportMs->compare_exchange_strong(lastMs, nowMs)) {
+            const qint64 previousBytes = ctx->lastReportBytes->exchange(aggregateNow);
+            const qint64 elapsed = qMax<qint64>(1, nowMs - lastMs);
+            const qint64 speed = (aggregateNow - previousBytes) * 1000 / elapsed;
+            emit ctx->owner->progress(aggregateNow, -1, speed);
+        }
+    }
     return static_cast<size_t>(n);
 }
 int segmentProgress(void *clientp,curl_off_t,curl_off_t,curl_off_t,curl_off_t) {
     return static_cast<SegmentContext*>(clientp)->owner->isCancelRequested()?1:0;
 }
-SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QString &path,qint64 first,qint64 last) {
+SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QString &path,qint64 first,qint64 last,
+                           std::atomic<qint64> *aggregate, std::atomic<qint64> *lastReportBytes,
+                           std::atomic<qint64> *lastReportMs) {
     SegmentResult out;
     QFile file(path);
     if(!file.open(QIODevice::WriteOnly|QIODevice::Truncate)){out.error="Unable to create segment";return out;}
     CURL *curl=curl_easy_init();
     if(!curl){out.error="libcurl initialization failed";return out;}
-    SegmentContext ctx{owner,&file,last-first+1,0,first};
+    SegmentContext ctx{owner,&file,last-first+1,0,first,aggregate,lastReportBytes,lastReportMs};
     const QByteArray range=QStringLiteral("%1-%2").arg(first).arg(last).toUtf8();
     curl_easy_setopt(curl,CURLOPT_URL,url.toUtf8().constData());
     curl_easy_setopt(curl,CURLOPT_RANGE,range.constData());
@@ -131,7 +149,7 @@ SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QStrin
 }
 }
 
-void HttpDownloader::setSegments(int count) { segmentCount_=qBound(1,count,16); }
+void HttpDownloader::setSegments(int count) { segmentCount_=qBound(1,count,8); }
 
 void HttpDownloader::run(const QString &url,const QString &destination){
     emit probing();
@@ -170,36 +188,137 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         existing=0;
     }
 
-    const int segments=qMax(1,segmentCount_.load());
-    if(total>0&&ranges&&segments>1&&existing==0) {
-        emit started(QFileInfo(finalPath).fileName(),total,true);
-        QVector<QString> files; QVector<QPair<qint64,qint64>> bounds;
-        const qint64 chunk=(total+segments-1)/segments;
-        for(int i=0;i<segments;i++){
+    const int connections=qBound(1,segmentCount_.load(),8);
+    const qint64 minimumRangeSize=1024LL*1024;
+    const qint64 maxRangesBySize=qMax<qint64>(1,(total+minimumRangeSize-1)/minimumRangeSize);
+    const int rangeCount=qMax(1,static_cast<int>(qMin<qint64>(connections*4,maxRangesBySize)));
+
+    QVector<QString> segmentFiles;
+    QVector<QPair<qint64,qint64>> bounds;
+    bool hasSegmentState=false;
+    if(total>0&&ranges) {
+        const qint64 chunk=(total+rangeCount-1)/rangeCount;
+        for(int i=0;i<rangeCount;i++){
             const qint64 first=i*chunk;
             if(first>=total)break;
             const qint64 last=qMin(total-1,first+chunk-1);
             const QString sp=partPath+QStringLiteral(".%1").arg(i);
-            files.push_back(sp);bounds.push_back({first,last});
+            segmentFiles.push_back(sp);
+            bounds.push_back({first,last});
+            if(QFileInfo::exists(sp)) hasSegmentState=true;
         }
-        QVector<std::future<SegmentResult>> jobs;
-        for(int i=0;i<bounds.size();i++)
-            jobs.push_back(std::async(std::launch::async,[&,i]{return fetchSegment(this,url,files[i],bounds[i].first,bounds[i].second);}));
+    }
+
+    if(total>0&&ranges&&existing==0&&(connections>1||hasSegmentState)) {
+        emit started(QFileInfo(finalPath).fileName(),total, true);
+
+        QVector<int> pending;
         qint64 done=0;
-        bool segmentFailed=false; QString error;
-        for(int i=0;i<jobs.size();i++){
-            const auto result=jobs[i].get();
-            if(result.cancelled){for(const auto &f:files)QFile::remove(f);if(pauseRequested_){emit paused(done);}else emit cancelled();return;}
-            if(!result.ok){segmentFailed=true;error=result.error;break;}
-            done+=result.bytes;emit progress(done,total,0);
+        for(int i=0;i<bounds.size();++i) {
+            const qint64 expected=bounds[i].second-bounds[i].first+1;
+            const qint64 size=QFileInfo(segmentFiles[i]).exists()?QFileInfo(segmentFiles[i]).size():0;
+            if(size==expected) done+=expected;
+            else {
+                if(size>0) QFile::remove(segmentFiles[i]);
+                pending.push_back(i);
+            }
         }
-        if(segmentFailed){for(const auto &f:files)QFile::remove(f);emit failed(error);return;}
+
+        std::atomic_int nextJob{0};
+        std::atomic_bool workerFailed{false};
+        std::atomic_bool rangeUnsupported{false};
+        std::atomic<qint64> aggregateDone{done};
+        std::atomic<qint64> lastReportBytes{done};
+        std::atomic<qint64> lastReportMs{
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count()};
+        std::mutex resultMutex;
+        QString error;
+
+        const int workerCount=qMin(connections,pending.size());
+        QVector<std::future<void>> workers;
+        workers.reserve(workerCount);
+        for(int worker=0;worker<workerCount;++worker) {
+            workers.push_back(std::async(std::launch::async,[&,worker] {
+                Q_UNUSED(worker);
+                while(!workerFailed.load()&&!isCancelRequested()) {
+                    const int slot=nextJob.fetch_add(1);
+                    if(slot>=pending.size()) break;
+                    const int index=pending[slot];
+                    const auto [first,last]=bounds[index];
+                    SegmentResult result;
+                    for(int attempt=0;attempt<3&&!isCancelRequested();++attempt) {
+                        result=fetchSegment(this,url,segmentFiles[index],first,last,
+                                            &aggregateDone,&lastReportBytes,&lastReportMs);
+                        if(result.ok||result.cancelled) break;
+                        if(attempt<2) std::this_thread::sleep_for(std::chrono::seconds(1<<attempt));
+                    }
+                    if(result.cancelled) break;
+                    if(!result.ok) {
+                        {
+                            std::lock_guard<std::mutex> lock(resultMutex);
+                            if(error.isEmpty()) error=result.error;
+                        }
+                        if(result.error.contains(QStringLiteral("did not honor HTTP Range")))
+                            rangeUnsupported.store(true);
+                        workerFailed.store(true);
+                        break;
+                    }
+                }
+            }));
+        }
+        for(auto &worker:workers) worker.get();
+
+        if(isCancelRequested()) {
+            if(cancelRequested_) {
+                for(const auto &f:segmentFiles) QFile::remove(f);
+                emit cancelled();
+            } else {
+                emit paused(aggregateDone.load());
+            }
+            return;
+        }
+        if(workerFailed.load()) {
+            if(rangeUnsupported.load()) {
+                for(const auto &f:segmentFiles) QFile::remove(f);
+                emit failed(QStringLiteral("Server stopped honoring HTTP Range requests during segmented download."));
+            } else {
+                emit failed(error.isEmpty()?QStringLiteral("A segmented HTTP transfer failed."):error);
+            }
+            return;
+        }
+
+        emit progress(total,total,0);
         QFile out(partPath);
-        if(!out.open(QIODevice::WriteOnly|QIODevice::Truncate)){for(const auto &f:files)QFile::remove(f);emit failed("Unable to assemble segmented download.");return;}
-        for(const auto &f:files){QFile in(f);if(!in.open(QIODevice::ReadOnly)||out.write(in.readAll())<0){out.close();for(const auto &x:files)QFile::remove(x);emit failed("Unable to assemble segmented download.");return;}in.close();QFile::remove(f);}
+        if(!out.open(QIODevice::WriteOnly|QIODevice::Truncate)) {
+            for(const auto &f:segmentFiles) QFile::remove(f);
+            emit failed(QStringLiteral("Unable to assemble segmented download."));
+            return;
+        }
+        for(const auto &f:segmentFiles) {
+            QFile in(f);
+            if(!in.open(QIODevice::ReadOnly)) {
+                out.close();
+                for(const auto &x:segmentFiles) QFile::remove(x);
+                emit failed(QStringLiteral("Unable to assemble segmented download."));
+                return;
+            }
+            while(!in.atEnd()) {
+                const QByteArray block=in.read(1024*1024);
+                if(block.isEmpty()&&!in.atEnd() || out.write(block)!=block.size()) {
+                    in.close(); out.close();
+                    for(const auto &x:segmentFiles) QFile::remove(x);
+                    emit failed(QStringLiteral("Unable to assemble segmented download."));
+                    return;
+                }
+            }
+            in.close();
+            QFile::remove(f);
+        }
         out.close();
         if(!QFile::rename(partPath,finalPath)){emit failed("Unable to finalize the downloaded file.");return;}
-        emit progress(total,total,0);emit completed(finalPath);return;
+        emit completed(finalPath);
+        return;
     }
 
     auto perform=[&](bool resume,qint64 offset)->CURLcode{
