@@ -8,6 +8,8 @@
 #include <libtorrent/session.hpp>
 #include <libtorrent/torrent_handle.hpp>
 
+class DownloadDatabase;
+
 class TorrentEngine final : public QObject {
     Q_OBJECT
 public:
@@ -23,6 +25,9 @@ public:
 
 signals:
     void torrentAdded(const QString &id, const QString &name);
+    void torrentHistoryRestored(const QString &id, const QString &name, const QString &source,
+                                 const QString &status, qint64 downloaded, qint64 total, qint64 updatedAt);
+    void torrentRemoved(const QString &id);
     void torrentProgress(const QString &id, int progress, qint64 downloaded, qint64 total,
                          qint64 downloadRate, qint64 uploadRate, int peers);
     void torrentCompleted(const QString &id);
@@ -50,4 +55,5 @@ private:
     int nextId_ = 1;
     int maxActiveDownloads_ = 5;
     QString resumeDirectory_;
+    std::unique_ptr<DownloadDatabase> database_;
 };
