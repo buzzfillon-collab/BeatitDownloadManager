@@ -22,6 +22,7 @@ public:
     bool open();
     bool save(const PersistedDownload &download);
     QVector<PersistedDownload> loadActive() const;
+    QVector<PersistedDownload> loadHistory() const;
     QString path() const;
 private:
     void initialize();
