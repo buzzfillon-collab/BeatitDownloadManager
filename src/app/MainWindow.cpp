@@ -389,8 +389,8 @@ void MainWindow::showSettings(){
             auto *hint=new QLabel(QStringLiteral("Uncheck files you do not want to download."),&dialog);
             layout->addWidget(hint);
             auto *list=new QListWidget(&dialog);
-            for(const auto &file:files){
-                auto *item=new QListWidgetItem(file,list);
+            for(int i=0;i<files.size();++i){
+                auto *item=new QListWidgetItem(files[i],list);
                 item->setCheckState(i < priorities.size() && priorities[i] == 0 ? Qt::Unchecked : Qt::Checked);
             }
             layout->addWidget(list,1);
