@@ -158,7 +158,7 @@ void DownloadManager::startNextQueued() {
                     if (deleteFile) {
                         QFile::remove(path);
                         QFile::remove(path + QStringLiteral(".part"));
-                        for (int i = 0; i < 16; ++i)
+                        for (int i = 0; i < 32; ++i)
                             QFile::remove(path + QStringLiteral(".part.%1").arg(i));
                     }
                     database_.remove(id);
