@@ -1,4 +1,12 @@
-#include "TorrentEngine.h"
+#iQVector<int> TorrentEngine::filePriorities(const QString &id) const {
+    QVector<int> out;
+    const auto it = torrents_.constFind(id);
+    if (it == torrents_.constEnd() || !it->handle.is_valid()) return out;
+    for (auto p : it->handle.get_file_priorities()) out.push_back(static_cast<int>(p));
+    return out;
+}
+
+nclude "TorrentEngine.h"
 #include "DownloadDatabase.h"
 
 #include <QDir>
@@ -466,6 +474,7 @@ void TorrentEngine::scheduleTorrents() {
                 it->availabilityWaiting = false;
                 it->availabilityPrompted = false;
                 it->scheduled = false;
+                it->handle.unset_flags(lt::torrent_flags::upload_mode);
                 emit torrentStatusChanged(it.key(), QStringLiteral("Availability complete — starting"));
             } else {
                 it->scheduled = true;
