@@ -10,6 +10,7 @@
 #include <thread>
 #include <curl/curl.h>
 #include <mutex>
+#include <vector>
 
 namespace {
 struct CurlContext {
@@ -238,7 +239,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         QString error;
 
         const int workerCount=qMin(connections,pending.size());
-        QVector<std::future<void>> workers;
+        std::vector<std::future<void>> workers;
         workers.reserve(workerCount);
         for(int worker=0;worker<workerCount;++worker) {
             workers.push_back(std::async(std::launch::async,[&,worker] {
