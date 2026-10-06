@@ -26,6 +26,11 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QListWidget>
+#include <QSpinBox>
+#include <QDoubleSpinBox>
 
 namespace {
 QString formatBytes(qint64 b){if(b<1024)return QStringLiteral("%1 B").arg(b);double v=b;const QStringList u{"KB","MB","GB","TB"};int i=-1;do{v/=1024.0;++i;}while(v>=1024.0&&i+1<u.size());return QStringLiteral("%1 %2").arg(v,0,'f',v>=100?0:1).arg(u[i]);}
@@ -348,5 +353,59 @@ void MainWindow::showSettings(){
     if(!ok) return;
     downloadManager_->setHttpConnections(value);
     settings.setValue(QStringLiteral("http/connections"),value);
-    statusLabel_->setText(QStringLiteral("HTTP segmentation: %1 connection%2").arg(value).arg(value==1?QString():QStringLiteral("s")));
+
+    const QStringList modes{QStringLiteral("Stop after 1.0× upload/download ratio"),
+                             QStringLiteral("Stop after 30 minutes seeding"),
+                             QStringLiteral("Seed forever"),
+                             QStringLiteral("Stop immediately after completion")};
+    const int currentMode=torrentEngine_->seedingPolicyMode();
+    const QString mode=QInputDialog::getItem(this,QStringLiteral("Torrent seeding policy"),
+        QStringLiteral("After a torrent finishes:"),modes,currentMode,false,&ok);
+    if(ok){
+        const int selected=modes.indexOf(mode);
+        double ratio=torrentEngine_->seedingRatio();
+        int minutes=torrentEngine_->seedingMinutes();
+        if(selected==0){
+            ratio=QInputDialog::getDouble(this,QStringLiteral("Seeding ratio"),
+                QStringLiteral("Upload/download ratio:"),ratio,0.1,100.0,1,&ok);
+            if(!ok) return;
+        } else if(selected==1){
+            minutes=QInputDialog::getInt(this,QStringLiteral("Seeding time"),
+                QStringLiteral("Minutes to seed:"),minutes,1,100000,1,&ok);
+            if(!ok) return;
+        }
+        torrentEngine_->setSeedingPolicy(selected,ratio,minutes);
+    }
+
+    const QString id=selectedId();
+    if(id.startsWith(QStringLiteral("torrent-"))){
+        const auto files=torrentEngine_->torrentFiles(id);
+        if(!files.isEmpty()){
+            QDialog dialog(this);
+            dialog.setWindowTitle(QStringLiteral("Selective torrent download"));
+            dialog.resize(620,420);
+            auto *layout=new QVBoxLayout(&dialog);
+            auto *hint=new QLabel(QStringLiteral("Uncheck files you do not want to download."),&dialog);
+            layout->addWidget(hint);
+            auto *list=new QListWidget(&dialog);
+            for(const auto &file:files){
+                auto *item=new QListWidgetItem(file,list);
+                item->setCheckState(Qt::Checked);
+            }
+            layout->addWidget(list,1);
+            auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
+            layout->addWidget(buttons);
+            connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);
+            connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+            if(dialog.exec()==QDialog::Accepted){
+                QVector<int> priorities;
+                priorities.reserve(list->count());
+                for(int i=0;i<list->count();++i)
+                    priorities.push_back(list->item(i)->checkState()==Qt::Checked?4:0);
+                torrentEngine_->setFilePriorities(id,priorities);
+                statusLabel_->setText(QStringLiteral("Torrent file selection updated"));
+            }
+        }
+    }
+    statusLabel_->setText(QStringLiteral("Settings saved"));
 }
