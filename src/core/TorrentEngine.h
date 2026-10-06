@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QString>
 #include <QTimer>
+#include <QVector>
 #include <memory>
 #include <libtorrent/session.hpp>
 #include <libtorrent/torrent_handle.hpp>
