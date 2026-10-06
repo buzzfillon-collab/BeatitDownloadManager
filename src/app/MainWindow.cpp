@@ -12,6 +12,8 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QInputDialog>
+#include <QSettings>
 #include <QMenu>
 #include <QPainter>
 #include <QProgressBar>
@@ -59,6 +61,9 @@ statusLabel_(new QLabel(QStringLiteral("Ready"),this)),downloadManager_(new Down
 torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
     setWindowTitle("Beatit");setWindowIcon(beatitIcon());setMinimumSize(1050,650);resize(1180,720);
 
+    QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    downloadManager_->setHttpConnections(settings.value(QStringLiteral("http/connections"), 8).toInt());
+
     auto *root=new QWidget(this);
     auto *mainLayout=new QVBoxLayout(root);
     mainLayout->setContentsMargins(0,0,0,0);mainLayout->setSpacing(0);
@@ -79,6 +84,10 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     urlEdit_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);
     toolbarLayout->addWidget(urlEdit_,1);toolbarLayout->addWidget(addButton_);
     auto *fileButton=new QPushButton(QStringLiteral("＋ Torrent"),toolbar);toolbarLayout->addWidget(fileButton);
+    auto *settingsButton=new QPushButton(QStringLiteral("⚙"),toolbar);
+    settingsButton->setToolTip(QStringLiteral("Settings"));
+    settingsButton->setFixedWidth(42);
+    toolbarLayout->addWidget(settingsButton);
     mainLayout->addWidget(toolbar);
 
     auto *body=new QHBoxLayout;
@@ -153,6 +162,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     connect(cancelButton_,&QPushButton::clicked,this,&MainWindow::cancelSelected);
     connect(removeButton_,&QPushButton::clicked,this,&MainWindow::removeSelected);
     connect(openButton_,&QPushButton::clicked,this,&MainWindow::openSelected);
+    connect(settingsButton,&QPushButton::clicked,this,&MainWindow::showSettings);
     connect(fileButton,&QPushButton::clicked,this,[this]{
         const QString p=QFileDialog::getOpenFileName(this,"Open torrent",
             QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),"Torrent files (*.torrent)");
@@ -283,3 +293,14 @@ void MainWindow::removeSelected(){
 }
 
 void MainWindow::openSelected(){const QString id=selectedId();const QString path=paths_.value(id);if(!path.isEmpty())QDesktopServices::openUrl(QUrl::fromLocalFile(path));}
+void MainWindow::showSettings(){
+    QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    bool ok=false;
+    const int current=qBound(1,downloadManager_->httpConnections(),8);
+    const int value=QInputDialog::getInt(this,QStringLiteral("Beatit Settings"),
+        QStringLiteral("HTTP connections per download:"),current,1,8,1,&ok);
+    if(!ok) return;
+    downloadManager_->setHttpConnections(value);
+    settings.setValue(QStringLiteral("http/connections"),value);
+    statusLabel_->setText(QStringLiteral("HTTP segmentation: %1 connection%2").arg(value).arg(value==1?QString():QStringLiteral("s")));
+}
