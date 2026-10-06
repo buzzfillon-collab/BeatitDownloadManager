@@ -7,6 +7,7 @@
 #include <QUrl>
 #include <chrono>
 #include <curl/curl.h>
+#include <mutex>
 
 namespace {
 struct CurlContext {
@@ -50,8 +51,11 @@ size_t headerCallback(char *buffer,size_t size,size_t nitems,void *userdata) {
 }
 }
 
-HttpDownloader::HttpDownloader(QObject *parent):QObject(parent){curl_global_init(CURL_GLOBAL_DEFAULT);}
-HttpDownloader::~HttpDownloader(){curl_global_cleanup();}
+HttpDownloader::HttpDownloader(QObject *parent):QObject(parent){
+    static std::once_flag curlInit;
+    std::call_once(curlInit, [] { curl_global_init(CURL_GLOBAL_DEFAULT); });
+}
+HttpDownloader::~HttpDownloader() = default;
 QString HttpDownloader::filenameFromUrl(const QString &url){
     QString name=QUrl(url).fileName();
     if(name.isEmpty()) name=QStringLiteral("download");
