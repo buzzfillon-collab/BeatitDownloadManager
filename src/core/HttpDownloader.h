@@ -11,6 +11,7 @@ public:
     void start(const QString &url, const QString &destination);
     void pause();
     void cancel();
+    void setSegments(int count);
     bool isCancelRequested() const noexcept;
 signals:
     void probing();
@@ -26,4 +27,5 @@ private:
     static QString humanCurlError(int code);
     std::atomic_bool pauseRequested_{false};
     std::atomic_bool cancelRequested_{false};
+    std::atomic_int segmentCount_{4};
 };
