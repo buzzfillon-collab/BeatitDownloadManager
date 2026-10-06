@@ -26,6 +26,7 @@ public:
     void forceRecheck(const QString &id);
     void setFilePriorities(const QString &id, const QVector<int> &priorities);
     QVector<QString> torrentFiles(const QString &id) const;
+    QVector<int> filePriorities(const QString &id) const;
     void setSeedingPolicy(int mode, double ratio = 1.0, int minutes = 30);
     int seedingPolicyMode() const { return seedingPolicyMode_; }
     double seedingRatio() const { return seedingRatio_; }
