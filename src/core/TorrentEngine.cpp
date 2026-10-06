@@ -19,6 +19,7 @@
 
 namespace {
 QString makeId(int n) { return QStringLiteral("torrent-%1").arg(n); }
+constexpr double kWholeFileAvailability = 1.0;
 }
 
 TorrentEngine::TorrentEngine(QObject *parent) : QObject(parent) {
@@ -81,7 +82,7 @@ QString TorrentEngine::addMagnet(const QString &magnet, const QString &savePath)
     }
 
     const QString id = makeId(nextId_++);
-    torrents_.insert(id, TorrentEntry{id, handle, false, false, true});
+    torrents_.insert(id, TorrentEntry{id, handle, false, false, false, false, false});
     PersistedDownload d;
     d.id = id; d.type = QStringLiteral("torrent"); d.source = magnet;
     d.destination = savePath; d.filename = QStringLiteral("Resolving magnet…");
@@ -157,6 +158,7 @@ void TorrentEngine::resume(const QString &id) {
     auto it = torrents_.find(id);
     if (it == torrents_.end() || !it->handle.is_valid()) return;
     it->userPaused = false;
+    it->availabilityOverride = true;
     it->scheduled = true;
     if (database_) {
         auto rows = database_->loadHistory();
@@ -202,6 +204,14 @@ void TorrentEngine::saveOneResume(const QString &id, const lt::torrent_handle &h
 void TorrentEngine::saveResumeData() {
     for (auto it = torrents_.cbegin(); it != torrents_.cend(); ++it)
         saveOneResume(it.key(), it->handle);
+}
+
+bool TorrentEngine::wholeFileAvailable(const lt::torrent_status &status) const {
+    // libtorrent's distributed_copies is the number of complete copies of the
+    // torrent currently represented across the connected swarm. A value >= 1
+    // means every piece exists somewhere in the swarm, although one copy may
+    // be distributed across multiple peers.
+    return status.distributed_copies >= kWholeFileAvailability;
 }
 
 void TorrentEngine::persistStatus(const QString &id, const lt::torrent_status &status) {
@@ -270,7 +280,7 @@ void TorrentEngine::restoreResumeData() {
             wasPaused = d.status == QStringLiteral("Paused");
             break;
         }
-        torrents_.insert(id, TorrentEntry{id, handle, false, wasPaused, false});
+        torrents_.insert(id, TorrentEntry{id, handle, false, wasPaused, false, false, false});
         const auto restoredStatus = handle.status();
         const QString name = QString::fromStdString(restoredStatus.name);
         const QString displayName = name.isEmpty() ? QStringLiteral("Torrent") : name;
@@ -326,7 +336,7 @@ void TorrentEngine::restoreResumeData() {
         if (ec) continue;
 
         const bool paused = d.status == QStringLiteral("Paused");
-        torrents_.insert(d.id, TorrentEntry{d.id, handle, false, paused, false});
+        torrents_.insert(d.id, TorrentEntry{d.id, handle, false, paused, false, false, false});
         const auto status = handle.status();
         const QString name = QString::fromStdString(status.name);
         if (!name.isEmpty()) {
@@ -358,6 +368,18 @@ void TorrentEngine::scheduleTorrents() {
             if (!(it->handle.flags() & lt::torrent_flags::paused)) it->handle.pause();
             continue;
         }
+        if (!it->availabilityOverride && status.has_metadata && status.num_peers > 0 &&
+            !wholeFileAvailable(status)) {
+            it->scheduled = false;
+            if (!(it->handle.flags() & lt::torrent_flags::paused)) it->handle.pause();
+            if (!it->availabilityPrompted) {
+                it->availabilityPrompted = true;
+                emit torrentAvailabilityQuestion(
+                    it.key(), QString::fromStdString(status.name),
+                    status.distributed_copies, status.num_peers);
+            }
+            continue;
+        }
         if (!status.is_finished && it->scheduled && !(it->handle.flags() & lt::torrent_flags::paused))
             ++activeDownloads;
         if (status.is_finished && !(it->handle.flags() & lt::torrent_flags::paused))
@@ -370,6 +392,10 @@ void TorrentEngine::scheduleTorrents() {
         if (status.is_finished) {
             it->scheduled = true;
             it->handle.resume();
+            continue;
+        }
+        if (!it->availabilityOverride && status.has_metadata &&
+            status.num_peers > 0 && !wholeFileAvailable(status)) {
             continue;
         }
         it->scheduled = true;
@@ -435,6 +461,21 @@ void TorrentEngine::pollAlerts() {
         if (!entry.handle.is_valid()) continue;
 
         const auto status = entry.handle.status();
+
+        // Magnets have to fetch metadata before availability can be evaluated.
+        // Until peers are known, availability is simply unknown rather than
+        // incorrectly reported as incomplete.
+        if (!entry.userPaused && !entry.availabilityOverride &&
+            status.has_metadata && status.num_peers > 0 &&
+            !wholeFileAvailable(status) && !entry.availabilityPrompted) {
+            entry.availabilityPrompted = true;
+            entry.scheduled = false;
+            entry.handle.pause();
+            emit torrentAvailabilityQuestion(
+                it.key(), QString::fromStdString(status.name),
+                status.distributed_copies, status.num_peers);
+        }
+
         emit torrentProgress(it.key(), static_cast<int>(status.progress_ppm / 10000),
             status.total_done, status.total_wanted, status.download_rate,
             status.upload_rate, status.num_peers);
