@@ -59,4 +59,4 @@ Qt 6 desktop UI -> DownloadManager -> HTTP engine (libcurl) / BitTorrent engine 
 - [ ] Release smoke tests
 
 ## License
-Apache License 2.0.
+GNU General Public License v3.0.
