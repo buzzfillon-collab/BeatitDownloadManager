@@ -1,0 +1,15 @@
+build/
+out/
+.vs/
+.vscode/
+*.user
+*.suo
+*.vcxproj*
+*.vcxproj.filters
+CMakeUserPresets.json
+*.exe
+*.zip
+*.7z
+*.pdb
+*.db
+*.part
