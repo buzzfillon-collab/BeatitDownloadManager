@@ -191,7 +191,9 @@ void HttpDownloader::run(const QString &url,const QString &destination){
     const int connections=qBound(1,segmentCount_.load(),8);
     const qint64 minimumRangeSize=1024LL*1024;
     const qint64 maxRangesBySize=qMax<qint64>(1,(total+minimumRangeSize-1)/minimumRangeSize);
-    const int rangeCount=qMax(1,static_cast<int>(qMin<qint64>(connections*4,maxRangesBySize)));
+    // Keep the on-disk range layout stable so changing the connection setting does not
+    // invalidate completed segments when a paused download is resumed.
+    const int rangeCount=qMax(1,static_cast<int>(qMin<qint64>(32,maxRangesBySize)));
 
     QVector<QString> segmentFiles;
     QVector<QPair<qint64,qint64>> bounds;
