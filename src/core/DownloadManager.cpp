@@ -10,15 +10,18 @@
 DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
     database_.open();
 
+    for (const auto &stored : database_.loadHistory()) {
+        bool ok = false;
+        const int n = stored.id.startsWith(QStringLiteral("download-"))
+            ? stored.id.mid(QStringLiteral("download-").size()).toInt(&ok) : 0;
+        if (ok) nextId_ = qMax(nextId_, n + 1);
+    }
+
     for (const auto &stored : database_.loadActive()) {
         auto d = stored;
         if (d.status == QStringLiteral("Downloading") || d.status == QStringLiteral("Starting"))
             d.status = QStringLiteral("Queued");
         queued_.insert(d.id, d);
-        bool ok = false;
-        const int n = d.id.startsWith(QStringLiteral("download-"))
-            ? d.id.mid(QStringLiteral("download-").size()).toInt(&ok) : 0;
-        if (ok) nextId_ = qMax(nextId_, n + 1);
     }
 
     QTimer::singleShot(0, this, [this] {
