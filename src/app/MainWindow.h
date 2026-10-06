@@ -18,6 +18,7 @@ private slots:
     void cancelSelected();
     void removeSelected();
     void openSelected();
+    void recheckSelected();
     void showSettings();
     void showFromTray();
     void exitFromTray();
@@ -28,7 +29,7 @@ private:
     void setupTray();
     int rowForId(const QString &id) const;
     QLineEdit *urlEdit_; QPushButton *addButton_; QPushButton *pauseButton_;
-    QPushButton *cancelButton_; QPushButton *removeButton_; QPushButton *openButton_; QTableWidget *downloadsTable_;
+    QPushButton *cancelButton_; QPushButton *removeButton_; QPushButton *openButton_; QPushButton *recheckButton_; QTableWidget *downloadsTable_;
     QLabel *statusLabel_; DownloadManager *downloadManager_; TorrentEngine *torrentEngine_;
     QSystemTrayIcon *trayIcon_; QMenu *trayMenu_;
     QHash<QString, QString> paths_; QHash<QString, int> rows_; bool reallyQuit_ = false;
