@@ -6,10 +6,16 @@
 #include <libtorrent/torrent_info.hpp>
 #include <libtorrent/alert_types.hpp>
 #include <libtorrent/settings_pack.hpp>
+#include <libtorrent/alert_types.hpp>
+#include <QStandardPaths>
+#include <QFile>
+#include <QDataStream>
 
 namespace { QString makeId(int n) { return QStringLiteral("torrent-%1").arg(n); } }
 
 TorrentEngine::TorrentEngine(QObject *parent) : QObject(parent) {
+    resumeDirectory_ = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/torrents";
+    QDir().mkpath(resumeDirectory_);
     lt::settings_pack settings;
     settings.set_int(lt::settings_pack::alert_mask,
         lt::alert_category::error | lt::alert_category::status |
@@ -21,8 +27,10 @@ TorrentEngine::TorrentEngine(QObject *parent) : QObject(parent) {
     alertTimer_.setInterval(250);
     connect(&alertTimer_, &QTimer::timeout, this, &TorrentEngine::pollAlerts);
     alertTimer_.start();
+    restoreResumeData();
 }
 TorrentEngine::~TorrentEngine() {
+    saveResumeData();
     alertTimer_.stop();
     if (session_) session_->pause();
 }
@@ -47,7 +55,7 @@ QString TorrentEngine::addMagnet(const QString &magnet, const QString &savePath)
         return {};
     }
     const QString id = makeId(nextId_++);
-    torrents_.insert(id, TorrentEntry{id, handle, false});
+    torrents_.insert(id, TorrentEntry{id, handle, false, savePath});
     emit torrentAdded(id, QStringLiteral("Resolving magnet…"));
     return id;
 }
@@ -91,6 +99,32 @@ void TorrentEngine::resume(const QString &id) {
     auto it = torrents_.find(id);
     if (it != torrents_.end() && it->handle.is_valid()) it->handle.resume();
 }
+void TorrentEngine::saveResumeData() {
+    for (auto it=torrents_.begin(); it!=torrents_.end(); ++it) {
+        if (!it->handle.is_valid()) continue;
+        it->handle.save_resume_data(lt::torrent_handle::save_info_dict);
+    }
+    if (session_) session_->save_state();
+}
+void TorrentEngine::restoreResumeData() {
+    QDir dir(resumeDirectory_);
+    for (const auto &file : dir.entryList(QStringList() << "*.resume", QDir::Files)) {
+        QFile f(dir.filePath(file));
+        if (!f.open(QIODevice::ReadOnly)) continue;
+        QByteArray data=f.readAll();
+        f.close();
+        lt::error_code ec;
+        auto atp=lt::read_resume_data(libtorrent::span<char const>(data.constData(), data.size()), ec);
+        if (ec) continue;
+        atp.flags &= ~lt::torrent_flags::paused;
+        auto handle=session_->add_torrent(std::move(atp), ec);
+        if (ec) continue;
+        const QString id=makeId(nextId_++);
+        torrents_.insert(id, TorrentEntry{id,handle,false,QString()});
+        emit torrentAdded(id, QString::fromStdString(handle.status().name));
+    }
+}
+
 void TorrentEngine::remove(const QString &id, bool deleteFiles) {
     auto it = torrents_.find(id);
     if (it == torrents_.end()) return;
@@ -104,6 +138,21 @@ void TorrentEngine::pollAlerts() {
     std::vector<lt::alert*> alerts;
     session_->pop_alerts(&alerts);
     for (auto *alert : alerts) {
+        if (auto *resume = lt::alert_cast<lt::save_resume_data_alert>(alert)) {
+            for (auto it=torrents_.begin(); it!=torrents_.end(); ++it) {
+                if (it->handle == resume->handle) {
+                    const QString file=resumeDirectory_ + "/" + it.key() + ".resume";
+                    const auto bytes=lt::write_resume_data_buf(resume->params);
+                    QFile f(file);
+                    if (f.open(QIODevice::WriteOnly|QIODevice::Truncate)) {
+                        f.write(bytes.data(), static_cast<qint64>(bytes.size()));
+                        f.close();
+                    }
+                    break;
+                }
+            }
+        }
+
         if (auto *error = lt::alert_cast<lt::torrent_error_alert>(alert)) {
             for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
                 if (it->handle == error->handle) {
