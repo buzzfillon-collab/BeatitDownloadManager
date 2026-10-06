@@ -251,6 +251,30 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
         }
         trayIcon_->showMessage("Beatit","Torrent completed");
     });
+    connect(torrentEngine_,&TorrentEngine::torrentAvailabilityQuestion,this,
+        [this](const QString&id,const QString&name,double copies,int peers){
+            const QString displayName=name.isEmpty()?QStringLiteral("This torrent"):name;
+            QMessageBox box(this);
+            box.setWindowTitle(QStringLiteral("Torrent availability"));
+            box.setIcon(QMessageBox::Warning);
+            box.setText(QStringLiteral("%1 is not fully available in the current swarm.").arg(displayName));
+            box.setInformativeText(
+                QStringLiteral("The rarest pieces currently have less than one complete distributed copy. "
+                               "Downloading may stall permanently if the missing pieces never appear. "
+                               "Still download?\n\nPeers: %1\nDistributed copies: %2")
+                    .arg(peers).arg(copies,0,'f',2));
+            auto *yes=box.addButton(QStringLiteral("Still download"),QMessageBox::AcceptRole);
+            box.addButton(QStringLiteral("No, wait"),QMessageBox::RejectRole);
+            box.exec();
+            if(box.clickedButton()==yes){
+                torrentEngine_->resume(id);
+                setStatus(id,QStringLiteral("Downloading"));
+                statusLabel_->setText(QStringLiteral("Downloading despite incomplete availability"));
+            } else {
+                setStatus(id,QStringLiteral("Waiting — incomplete availability"));
+                statusLabel_->setText(QStringLiteral("Torrent waiting for complete swarm availability"));
+            }
+        });
     connect(torrentEngine_,&TorrentEngine::torrentError,this,[this](const QString&,const QString&e){trayIcon_->showMessage("Beatit",e,QSystemTrayIcon::Warning);});
 }
 void MainWindow::setupTray(){trayIcon_->setIcon(windowIcon());trayIcon_->setToolTip("Beatit Download Manager");trayMenu_->addAction("Show Beatit",this,&MainWindow::showFromTray);trayMenu_->addSeparator();trayMenu_->addAction("Exit",this,&MainWindow::exitFromTray);trayIcon_->setContextMenu(trayMenu_);connect(trayIcon_,&QSystemTrayIcon::activated,this,[this](QSystemTrayIcon::ActivationReason r){if(r==QSystemTrayIcon::DoubleClick||r==QSystemTrayIcon::Trigger)showFromTray();});trayIcon_->show();}
