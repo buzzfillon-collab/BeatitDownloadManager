@@ -17,6 +17,7 @@ public:
     QString addUrl(const QString &url, const QString &destination);
     void pause(const QString &id);
     void cancel(const QString &id);
+    void remove(const QString &id, bool deleteFile = false);
     void resume(const QString &id);
     void setMaxActive(int count);
     int maxActive() const noexcept { return maxActive_; }
@@ -24,13 +25,14 @@ public:
 signals:
     void taskAdded(const QString &id, const QString &url);
     void taskRestored(const QString &id, const QString &url, const QString &filename,
-                      const QString &status, qint64 downloaded, qint64 total);
+                      const QString &status, qint64 downloaded, qint64 total, qint64 updatedAt);
     void taskStarted(const QString &id, const QString &filename, qint64 totalBytes);
     void taskProgress(const QString &id, qint64 downloaded, qint64 total, qint64 speed);
     void taskPaused(const QString &id, qint64 downloaded);
     void taskCompleted(const QString &id, const QString &path);
     void taskFailed(const QString &id, const QString &error);
     void taskCancelled(const QString &id);
+    void taskRemoved(const QString &id);
 
 private:
     struct ActiveTask {
@@ -48,5 +50,7 @@ private:
     int maxActive_ = 3;
     QHash<QString, ActiveTask> active_;
     QHash<QString, PersistedDownload> queued_;
+    QHash<QString, bool> pendingRemoval_;
+    QHash<QString, bool> pendingDeleteFile_;
     DownloadDatabase database_;
 };
