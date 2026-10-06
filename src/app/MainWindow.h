@@ -18,6 +18,7 @@ private slots:
     void cancelSelected();
     void removeSelected();
     void openSelected();
+    void showSettings();
     void showFromTray();
     void exitFromTray();
 private:
