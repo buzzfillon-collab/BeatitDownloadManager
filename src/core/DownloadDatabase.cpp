@@ -26,6 +26,7 @@ QVector<PersistedDownload> readRows(sqlite3 *db, const char *sql) {
         d.downloadedBytes = sqlite3_column_int64(s, 7);
         d.speed = sqlite3_column_int64(s, 8);
         d.error = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 9)));
+        d.updatedAt = sqlite3_column_int64(s, 10);
         out.push_back(std::move(d));
     }
     sqlite3_finalize(s);
@@ -113,4 +114,15 @@ void DownloadDatabase::close() {
         sqlite3_close(asDb(db_));
         db_ = nullptr;
     }
+}
+
+bool DownloadDatabase::remove(const QString &id) {
+    if (!open()) return false;
+    sqlite3_stmt *s = nullptr;
+    const char *sql = "DELETE FROM downloads WHERE id=?;";
+    if (sqlite3_prepare_v2(asDb(db_), sql, -1, &s, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(s, 1, id.toUtf8().constData(), -1, SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(s) == SQLITE_DONE;
+    sqlite3_finalize(s);
+    return ok;
 }
