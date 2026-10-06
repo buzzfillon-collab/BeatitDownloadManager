@@ -8,6 +8,8 @@
 #include <QThread>
 #include <QDateTime>
 #include <QFileInfo>
+#include <QSettings>
+#include <QVector>
 
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
@@ -38,6 +40,7 @@ TorrentEngine::TorrentEngine(QObject *parent) : QObject(parent) {
     settings.set_int(lt::settings_pack::active_seeds, maxActiveDownloads_);
     settings.set_bool(lt::settings_pack::enable_dht, true);
 
+    loadSettings();
     session_ = std::make_unique<lt::session>(settings);
     alertTimer_.setInterval(250);
     connect(&alertTimer_, &QTimer::timeout, this, &TorrentEngine::pollAlerts);
@@ -214,6 +217,98 @@ bool TorrentEngine::wholeFileAvailable(const lt::torrent_status &status) const {
     return status.distributed_copies >= kWholeFileAvailability;
 }
 
+QString TorrentEngine::stateText(const TorrentEntry &entry, const lt::torrent_status &status) const {
+    if (status.errc) return QStringLiteral("Error: %1").arg(QString::fromStdString(status.errc.message()));
+    if (entry.userPaused) return QStringLiteral("Paused");
+    if (status.state == lt::torrent_status::checking_resume_data ||
+        status.state == lt::torrent_status::checking_files) return QStringLiteral("Checking files");
+    if (!status.has_metadata) return QStringLiteral("Resolving metadata");
+    if (status.is_seeding) return entry.seedStopped ? QStringLiteral("Seeding stopped") : QStringLiteral("Seeding");
+    if (entry.availabilityWaiting) return QStringLiteral("Waiting — incomplete availability");
+    if (entry.stalledNotified) return QStringLiteral("Stalled");
+    if (status.state == lt::torrent_status::downloading) return QStringLiteral("Downloading");
+    if (status.is_finished) return QStringLiteral("Finished");
+    return QStringLiteral("Queued");
+}
+
+bool TorrentEngine::shouldStopSeeding(const lt::torrent_status &status) const {
+    if (!status.is_seeding) return false;
+    if (seedingPolicyMode_ == 3) return true;
+    if (seedingPolicyMode_ == 2) return false;
+    if (seedingPolicyMode_ == 1)
+        return status.seeding_duration >= seedingMinutes_ * 60;
+    if (status.total_done <= 0) return false;
+    return static_cast<double>(status.all_time_upload) / static_cast<double>(status.total_done) >= seedingRatio_;
+}
+
+void TorrentEngine::loadSettings() {
+    QSettings s(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    seedingPolicyMode_ = qBound(0, s.value(QStringLiteral("torrent/seedingMode"), 0).toInt(), 3);
+    seedingRatio_ = qMax(0.1, s.value(QStringLiteral("torrent/seedingRatio"), 1.0).toDouble());
+    seedingMinutes_ = qMax(1, s.value(QStringLiteral("torrent/seedingMinutes"), 30).toInt());
+}
+
+void TorrentEngine::persistSettings() {
+    QSettings s(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    s.setValue(QStringLiteral("torrent/seedingMode"), seedingPolicyMode_);
+    s.setValue(QStringLiteral("torrent/seedingRatio"), seedingRatio_);
+    s.setValue(QStringLiteral("torrent/seedingMinutes"), seedingMinutes_);
+}
+
+void TorrentEngine::setSeedingPolicy(int mode, double ratio, int minutes) {
+    seedingPolicyMode_ = qBound(0, mode, 3);
+    seedingRatio_ = qMax(0.1, ratio);
+    seedingMinutes_ = qMax(1, minutes);
+    persistSettings();
+    for (auto it = torrents_.begin(); it != torrents_.end(); ++it)
+        if (it->seedStopped && it->handle.is_valid()) {
+            it->seedStopped = false;
+            it->userPaused = false;
+            it->handle.resume();
+        }
+    scheduleTorrents();
+}
+
+void TorrentEngine::forceRecheck(const QString &id) {
+    auto it = torrents_.find(id);
+    if (it == torrents_.end() || !it->handle.is_valid()) return;
+    it->stalledNotified = false;
+    it->availabilityWaiting = false;
+    it->availabilityPrompted = false;
+    it->availabilityOverride = false;
+    it->seedStopped = false;
+    it->lastProgressBytes = 0;
+    it->lastProgressTime = QDateTime::currentSecsSinceEpoch();
+    it->handle.force_recheck();
+    it->scheduled = false;
+    emit torrentStatusChanged(id, QStringLiteral("Checking files"));
+}
+
+void TorrentEngine::setFilePriorities(const QString &id, const QVector<int> &priorities) {
+    auto it = torrents_.find(id);
+    if (it == torrents_.end() || !it->handle.is_valid()) return;
+    if (!it->handle.torrent_file()) return;
+    std::vector<lt::download_priority_t> p;
+    p.reserve(priorities.size());
+    for (int v : priorities) p.push_back(lt::download_priority_t(qBound(0, v, 7)));
+    it->handle.prioritize_files(p);
+    saveOneResume(id, it->handle);
+    scheduleTorrents();
+}
+
+QVector<QString> TorrentEngine::torrentFiles(const QString &id) const {
+    QVector<QString> out;
+    const auto it = torrents_.constFind(id);
+    if (it == torrents_.constEnd() || !it->handle.is_valid()) return out;
+    auto ti = it->handle.torrent_file();
+    if (!ti) return out;
+    const auto &layout = ti->layout();
+    lt::filenames names(layout, it->handle.get_renamed_files());
+    for (int i = 0; i < names.num_files(); ++i)
+        out.push_back(QString::fromStdString(names.file_path(i)));
+    return out;
+}
+
 void TorrentEngine::persistStatus(const QString &id, const lt::torrent_status &status) {
     if (!database_) return;
     for (const auto &d : database_->loadHistory()) {
@@ -224,9 +319,9 @@ void TorrentEngine::persistStatus(const QString &id, const lt::torrent_status &s
         copy.speed = status.download_rate;
         const auto torrentIt = torrents_.constFind(id);
         const bool userPaused = torrentIt != torrents_.constEnd() && torrentIt->userPaused;
-        copy.status = status.is_finished
-            ? QStringLiteral("Completed")
-            : (userPaused ? QStringLiteral("Paused") : QStringLiteral("Downloading"));
+        copy.status = torrentIt != torrents_.constEnd()
+            ? stateText(torrentIt.value(), status)
+            : (status.is_finished ? QStringLiteral("Completed") : QStringLiteral("Downloading"));
         database_->save(copy);
         return;
     }
@@ -359,45 +454,50 @@ void TorrentEngine::restoreResumeData() {
 
 void TorrentEngine::scheduleTorrents() {
     int activeDownloads = 0;
-
     for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
         if (!it->handle.is_valid()) continue;
         const auto status = it->handle.status();
-        if (it->userPaused) {
+        if (it->userPaused || it->seedStopped) {
             it->scheduled = false;
             if (!(it->handle.flags() & lt::torrent_flags::paused)) it->handle.pause();
             continue;
         }
+        if (it->availabilityWaiting && !it->availabilityOverride) {
+            if (status.has_metadata && status.num_peers > 0 && wholeFileAvailable(status)) {
+                it->availabilityWaiting = false;
+                it->availabilityPrompted = false;
+                it->scheduled = false;
+                emit torrentStatusChanged(it.key(), QStringLiteral("Availability complete — starting"));
+            } else {
+                it->scheduled = false;
+                if (!(it->handle.flags() & lt::torrent_flags::paused)) it->handle.pause();
+                continue;
+            }
+        }
         if (!it->availabilityOverride && status.has_metadata && status.num_peers > 0 &&
-            !wholeFileAvailable(status)) {
+            !status.is_finished && !wholeFileAvailable(status)) {
+            it->availabilityWaiting = true;
             it->scheduled = false;
             if (!(it->handle.flags() & lt::torrent_flags::paused)) it->handle.pause();
             if (!it->availabilityPrompted) {
                 it->availabilityPrompted = true;
-                emit torrentAvailabilityQuestion(
-                    it.key(), QString::fromStdString(status.name),
+                emit torrentAvailabilityQuestion(it.key(), QString::fromStdString(status.name),
                     status.distributed_copies, status.num_peers);
             }
             continue;
         }
         if (!status.is_finished && it->scheduled && !(it->handle.flags() & lt::torrent_flags::paused))
             ++activeDownloads;
-        if (status.is_finished && !(it->handle.flags() & lt::torrent_flags::paused))
+        if (status.is_finished && !status.is_seeding && !(it->handle.flags() & lt::torrent_flags::paused))
             it->scheduled = true;
     }
-
     for (auto it = torrents_.begin(); it != torrents_.end() && activeDownloads < maxActiveDownloads_; ++it) {
-        if (it->userPaused || !it->handle.is_valid() || it->scheduled) continue;
+        if (it->userPaused || it->seedStopped || !it->handle.is_valid() || it->scheduled) continue;
         const auto status = it->handle.status();
-        if (status.is_finished) {
-            it->scheduled = true;
-            it->handle.resume();
-            continue;
-        }
-        if (!it->availabilityOverride && status.has_metadata &&
-            status.num_peers > 0 && !wholeFileAvailable(status)) {
-            continue;
-        }
+        if (status.is_seeding) { it->scheduled = true; it->handle.resume(); continue; }
+        if (status.is_finished) { it->scheduled = true; it->handle.resume(); ++activeDownloads; continue; }
+        if (!it->availabilityOverride && status.has_metadata && status.num_peers > 0 &&
+            !wholeFileAvailable(status)) continue;
         it->scheduled = true;
         it->handle.resume();
         ++activeDownloads;
@@ -406,7 +506,6 @@ void TorrentEngine::scheduleTorrents() {
 
 void TorrentEngine::pollAlerts() {
     if (!session_) return;
-
     std::vector<lt::alert*> alerts;
     session_->pop_alerts(&alerts);
 
@@ -418,31 +517,31 @@ void TorrentEngine::pollAlerts() {
                     const auto bytes = lt::write_resume_data_buf(resume->params);
                     QFile f(file);
                     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-                        f.write(bytes.data(), static_cast<qint64>(bytes.size()));
-                        f.close();
+                        f.write(bytes.data(), static_cast<qint64>(bytes.size())); f.close();
                     }
                     break;
                 }
             }
         }
-
         if (auto *error = lt::alert_cast<lt::torrent_error_alert>(alert)) {
-            for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
-                if (it->handle == error->handle) {
-                    emit torrentError(it.key(),
-                        QString::fromStdString(error->error.message()));
-                    break;
-                }
+            for (auto it = torrents_.begin(); it != torrents_.end(); ++it) if (it->handle == error->handle) {
+                it->stalledNotified = false;
+                emit torrentError(it.key(), QString::fromStdString(error->error.message()));
+                emit torrentStatusChanged(it.key(), QStringLiteral("Error: %1").arg(QString::fromStdString(error->error.message())));
+                break;
             }
         }
-
         if (auto *metadata = lt::alert_cast<lt::metadata_received_alert>(alert)) {
-            for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
-                if (it->handle == metadata->handle) {
-                    const QString name = QString::fromStdString(it->handle.status().name);
-                    if (!name.isEmpty()) emit torrentAdded(it.key(), name);
-                    break;
-                }
+            for (auto it = torrents_.begin(); it != torrents_.end(); ++it) if (it->handle == metadata->handle) {
+                const QString name = QString::fromStdString(it->handle.status().name);
+                if (!name.isEmpty()) emit torrentAdded(it.key(), name);
+                break;
+            }
+        }
+        if (auto *fileError = lt::alert_cast<lt::file_error_alert>(alert)) {
+            for (auto it = torrents_.begin(); it != torrents_.end(); ++it) if (it->handle == fileError->handle) {
+                emit torrentError(it.key(), QString::fromStdString(fileError->error.message()));
+                break;
             }
         }
     }
@@ -451,42 +550,74 @@ void TorrentEngine::pollAlerts() {
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     const bool writeDatabase = (now != lastDatabaseWrite);
     if (writeDatabase) lastDatabaseWrite = now;
-    if (now - lastResumeSave_ >= 30) {
-        saveResumeData();
-        lastResumeSave_ = now;
-    }
+    if (now - lastResumeSave_ >= 30) { saveResumeData(); lastResumeSave_ = now; }
 
     for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
         auto &entry = it.value();
         if (!entry.handle.is_valid()) continue;
+        auto status = entry.handle.status();
 
-        const auto status = entry.handle.status();
-
-        // Magnets have to fetch metadata before availability can be evaluated.
-        // Until peers are known, availability is simply unknown rather than
-        // incorrectly reported as incomplete.
-        if (!entry.userPaused && !entry.availabilityOverride &&
-            status.has_metadata && status.num_peers > 0 &&
-            !wholeFileAvailable(status) && !entry.availabilityPrompted) {
-            entry.availabilityPrompted = true;
+        if (!entry.userPaused && !entry.seedStopped && !entry.availabilityOverride &&
+            status.has_metadata && status.num_peers > 0 && !status.is_finished &&
+            !wholeFileAvailable(status)) {
+            entry.availabilityWaiting = true;
             entry.scheduled = false;
             entry.handle.pause();
-            emit torrentAvailabilityQuestion(
-                it.key(), QString::fromStdString(status.name),
-                status.distributed_copies, status.num_peers);
+            if (!entry.availabilityPrompted) {
+                entry.availabilityPrompted = true;
+                emit torrentAvailabilityQuestion(it.key(), QString::fromStdString(status.name),
+                    status.distributed_copies, status.num_peers);
+            }
+        }
+
+        if (entry.availabilityWaiting && !entry.availabilityOverride &&
+            status.has_metadata && status.num_peers > 0 && wholeFileAvailable(status)) {
+            entry.availabilityWaiting = false;
+            entry.availabilityPrompted = false;
+            entry.scheduled = false;
+            if (!(entry.handle.flags() & lt::torrent_flags::paused)) entry.handle.resume();
+            emit torrentStatusChanged(it.key(), QStringLiteral("Availability complete — starting"));
+            scheduleTorrents();
+            status = entry.handle.status();
+        }
+
+        const qint64 downloaded = status.total_done;
+        if (entry.lastProgressTime == 0) {
+            entry.lastProgressTime = now;
+            entry.lastProgressBytes = downloaded;
+        } else if (downloaded > entry.lastProgressBytes) {
+            entry.lastProgressBytes = downloaded;
+            entry.lastProgressTime = now;
+            entry.stalledNotified = false;
+        } else if (!entry.userPaused && !entry.seedStopped && status.state == lt::torrent_status::downloading &&
+                   status.num_peers > 0 && now - entry.lastProgressTime >= 300) {
+            if (!entry.stalledNotified) {
+                entry.stalledNotified = true;
+                emit torrentStalled(it.key(), static_cast<int>(now - entry.lastProgressTime));
+            }
+        }
+
+        if (status.is_seeding && entry.seedStartTime == 0) entry.seedStartTime = now;
+        if (status.is_seeding && shouldStopSeeding(status) && !entry.seedStopped) {
+            entry.seedStopped = true;
+            entry.scheduled = false;
+            entry.handle.pause();
+            emit torrentStatusChanged(it.key(), QStringLiteral("Seeding stopped by policy"));
         }
 
         emit torrentProgress(it.key(), static_cast<int>(status.progress_ppm / 10000),
             status.total_done, status.total_wanted, status.download_rate,
             status.upload_rate, status.num_peers);
+        emit torrentHealthChanged(it.key(), status.announcing_to_trackers, status.announcing_to_dht,
+                                 status.list_peers, status.connect_candidates);
+        emit torrentStatusChanged(it.key(), stateText(entry, status));
 
         if (writeDatabase) persistStatus(it.key(), status);
 
         if (status.is_finished && !entry.completedNotified) {
             entry.completedNotified = true;
-            entry.scheduled = false;
             emit torrentCompleted(it.key());
-            scheduleTorrents();
         }
     }
+    scheduleTorrents();
 }
