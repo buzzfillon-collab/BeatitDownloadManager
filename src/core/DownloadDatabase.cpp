@@ -96,7 +96,7 @@ bool DownloadDatabase::save(const PersistedDownload &d) {
 QVector<PersistedDownload> DownloadDatabase::loadActive() const {
     if (!db_) return {};
     return readRows(asDb(db_),
-        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error "
+        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at "
         "FROM downloads WHERE status IN ('Queued','Paused','Downloading','Failed') "
         "ORDER BY updated_at ASC;");
 }
@@ -104,7 +104,7 @@ QVector<PersistedDownload> DownloadDatabase::loadActive() const {
 QVector<PersistedDownload> DownloadDatabase::loadHistory() const {
     if (!db_) return {};
     return readRows(asDb(db_),
-        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error "
+        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at "
         "FROM downloads ORDER BY updated_at DESC;");
 }
 
