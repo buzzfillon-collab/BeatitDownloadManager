@@ -293,6 +293,54 @@ void TorrentEngine::restoreResumeData() {
         emit torrentAdded(id, displayName);
     }
 
+    // If resume data is missing/corrupt, rebuild the torrent from its persisted
+    // source instead of leaving a dead history entry. This covers both .torrent
+    // files and magnets and preserves the original torrent ID.
+    for (const auto &d : history) {
+        if (d.type != QStringLiteral("torrent") || torrents_.contains(d.id))
+            continue;
+
+        lt::error_code ec;
+        lt::add_torrent_params params;
+        bool usable = false;
+
+        if (d.source.startsWith(QStringLiteral("magnet:?"))) {
+            params = lt::parse_magnet_uri(d.source.toStdString(), ec);
+            usable = !ec;
+        } else if (!d.source.isEmpty() && QFileInfo::exists(d.source)) {
+            auto info = std::make_shared<lt::torrent_info>(d.source.toStdString(), ec);
+            if (!ec) {
+                params.ti = std::move(info);
+                usable = true;
+            }
+        }
+
+        if (!usable) continue;
+
+        params.save_path = d.destination.toStdString();
+        params.flags &= ~lt::torrent_flags::paused;
+        auto handle = session_->add_torrent(std::move(params), ec);
+        if (ec) continue;
+
+        const bool paused = d.status == QStringLiteral("Paused");
+        torrents_.insert(d.id, TorrentEntry{d.id, handle, false, paused, false});
+        const auto status = handle.status();
+        const QString name = QString::fromStdString(status.name);
+        if (!name.isEmpty()) {
+            auto copy = d;
+            copy.filename = name;
+            copy.downloadedBytes = status.total_done;
+            copy.totalBytes = status.total_wanted;
+            copy.status = status.is_finished ? QStringLiteral("Completed")
+                                             : (paused ? QStringLiteral("Paused")
+                                                       : QStringLiteral("Queued"));
+            database_->save(copy);
+            emit torrentAdded(d.id, name);
+        } else {
+            emit torrentAdded(d.id, d.filename);
+        }
+    }
+
     scheduleTorrents();
 }
 
