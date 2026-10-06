@@ -22,7 +22,7 @@ DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
     }
 
     QTimer::singleShot(0, this, [this] {
-        for (const auto &d : queued_)
+        for (const auto &d : database_.loadHistory())
             emit taskRestored(d.id, d.source, d.filename, d.status, d.downloadedBytes, d.totalBytes);
         startNextQueued();
     });
