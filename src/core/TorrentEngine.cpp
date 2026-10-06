@@ -1,10 +1,12 @@
 #include "TorrentEngine.h"
+#include "DownloadDatabase.h"
 
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QThread>
+#include <QDateTime>
 
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
@@ -17,6 +19,9 @@ QString makeId(int n) { return QStringLiteral("torrent-%1").arg(n); }
 }
 
 TorrentEngine::TorrentEngine(QObject *parent) : QObject(parent) {
+    database_ = std::make_unique<DownloadDatabase>();
+    database_->open();
+
     resumeDirectory_ =
         QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/torrents";
     QDir().mkpath(resumeDirectory_);
@@ -74,7 +79,12 @@ QString TorrentEngine::addMagnet(const QString &magnet, const QString &savePath)
 
     const QString id = makeId(nextId_++);
     torrents_.insert(id, TorrentEntry{id, handle, false, false, true});
-    emit torrentAdded(id, QStringLiteral("Resolving magnet…"));
+    PersistedDownload d;
+    d.id = id; d.type = QStringLiteral("torrent"); d.source = magnet;
+    d.destination = savePath; d.filename = QStringLiteral("Resolving magnet…");
+    d.status = QStringLiteral("Resolving");
+    database_->save(d);
+    emit torrentAdded(id, d.filename);
     scheduleTorrents();
     return id;
 }
@@ -113,7 +123,12 @@ QString TorrentEngine::addTorrentFile(const QString &path, const QString &savePa
     const QString id = makeId(nextId_++);
     torrents_.insert(id, TorrentEntry{id, handle, false, false, true});
     const QString name = QString::fromStdString(handle.status().name);
-    emit torrentAdded(id, name.isEmpty() ? QStringLiteral("Torrent") : name);
+    PersistedDownload d;
+    d.id = id; d.type = QStringLiteral("torrent"); d.source = path;
+    d.destination = savePath; d.filename = name.isEmpty() ? QStringLiteral("Torrent") : name;
+    d.status = QStringLiteral("Queued");
+    database_->save(d);
+    emit torrentAdded(id, d.filename);
     scheduleTorrents();
     return id;
 }
@@ -125,6 +140,13 @@ void TorrentEngine::pause(const QString &id) {
     it->scheduled = false;
     it->handle.pause();
     saveOneResume(id, it->handle);
+    if (database_) {
+        auto rows = database_->loadHistory();
+        for (const auto &d : rows) if (d.id == id) {
+            auto copy = d; copy.status = QStringLiteral("Paused"); copy.speed = 0;
+            database_->save(copy); break;
+        }
+    }
     scheduleTorrents();
 }
 
@@ -133,6 +155,13 @@ void TorrentEngine::resume(const QString &id) {
     if (it == torrents_.end() || !it->handle.is_valid()) return;
     it->userPaused = false;
     it->scheduled = true;
+    if (database_) {
+        auto rows = database_->loadHistory();
+        for (const auto &d : rows) if (d.id == id) {
+            auto copy = d; copy.status = QStringLiteral("Queued");
+            database_->save(copy); break;
+        }
+    }
     scheduleTorrents();
 }
 
@@ -147,6 +176,8 @@ void TorrentEngine::remove(const QString &id, bool deleteFiles) {
 
     QFile::remove(resumeDirectory_ + "/" + id + ".resume");
     torrents_.erase(it);
+    if (database_) database_->remove(id);
+    emit torrentRemoved(id);
     scheduleTorrents();
 }
 
@@ -162,6 +193,14 @@ void TorrentEngine::saveResumeData() {
 }
 
 void TorrentEngine::restoreResumeData() {
+    if (database_) {
+        for (const auto &d : database_->loadHistory()) {
+            if (d.type == QStringLiteral("torrent"))
+                emit torrentHistoryRestored(d.id, d.filename, d.source, d.status,
+                                            d.downloadedBytes, d.totalBytes, d.updatedAt);
+        }
+    }
+
     QDir dir(resumeDirectory_);
     const auto files = dir.entryList(QStringList() << "*.resume", QDir::Files);
 
@@ -190,7 +229,22 @@ void TorrentEngine::restoreResumeData() {
             id = makeId(nextId_++);
         torrents_.insert(id, TorrentEntry{id, handle, false, false, false});
         const QString name = QString::fromStdString(handle.status().name);
-        emit torrentAdded(id, name.isEmpty() ? QStringLiteral("Torrent") : name);
+        const QString displayName = name.isEmpty() ? QStringLiteral("Torrent") : name;
+        if (database_) {
+            auto rows = database_->loadHistory();
+            bool found = false;
+            for (const auto &d : rows) if (d.id == id) {
+                auto copy = d; copy.filename = displayName; copy.status = QStringLiteral("Queued");
+                database_->save(copy); found = true; break;
+            }
+            if (!found) {
+                PersistedDownload d; d.id=id; d.type=QStringLiteral("torrent");
+                d.source=QStringLiteral("resume://") + id; d.destination=QString();
+                d.filename=displayName; d.status=QStringLiteral("Queued");
+                database_->save(d);
+            }
+        }
+        emit torrentAdded(id, displayName);
     }
 
     scheduleTorrents();
@@ -259,6 +313,11 @@ void TorrentEngine::pollAlerts() {
         }
     }
 
+    static qint64 lastDatabaseWrite = 0;
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    const bool writeDatabase = (now != lastDatabaseWrite);
+    if (writeDatabase) lastDatabaseWrite = now;
+
     for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
         auto &entry = it.value();
         if (!entry.handle.is_valid()) continue;
@@ -267,6 +326,21 @@ void TorrentEngine::pollAlerts() {
         emit torrentProgress(it.key(), static_cast<int>(status.progress_ppm / 10000),
             status.total_done, status.total_wanted, status.download_rate,
             status.upload_rate, status.num_peers);
+
+        if (writeDatabase && database_) {
+            auto rows = database_->loadHistory();
+            for (const auto &d : rows) if (d.id == it.key()) {
+                auto copy = d;
+                copy.downloadedBytes = status.total_done;
+                copy.totalBytes = status.total_wanted;
+                copy.speed = status.download_rate;
+                copy.status = status.is_finished ? QStringLiteral("Completed")
+                                                 : (status.paused ? QStringLiteral("Paused")
+                                                                  : QStringLiteral("Downloading"));
+                database_->save(copy);
+                break;
+            }
+        }
 
         if (status.is_finished && !entry.completedNotified) {
             entry.completedNotified = true;
