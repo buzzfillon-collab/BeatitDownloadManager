@@ -25,6 +25,7 @@ private:
     QString selectedId() const;
     void setStatus(const QString &id, const QString &status);
     void setupTray();
+    int rowForId(const QString &id) const;
     QLineEdit *urlEdit_; QPushButton *addButton_; QPushButton *pauseButton_;
     QPushButton *cancelButton_; QPushButton *removeButton_; QPushButton *openButton_; QTableWidget *downloadsTable_;
     QLabel *statusLabel_; DownloadManager *downloadManager_; TorrentEngine *torrentEngine_;
