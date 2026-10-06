@@ -3,7 +3,6 @@
 
 #include <QDir>
 #include <QFile>
-#include <QFileInfo>
 #include <QStandardPaths>
 #include <QThread>
 #include <QDateTime>
@@ -236,7 +235,7 @@ bool TorrentEngine::shouldStopSeeding(const lt::torrent_status &status) const {
     if (seedingPolicyMode_ == 3) return true;
     if (seedingPolicyMode_ == 2) return false;
     if (seedingPolicyMode_ == 1)
-        return status.seeding_duration >= seedingMinutes_ * 60;
+        return status.seeding_duration.count() >= seedingMinutes_ * 60;
     if (status.total_done <= 0) return false;
     return static_cast<double>(status.all_time_upload) / static_cast<double>(status.total_done) >= seedingRatio_;
 }
