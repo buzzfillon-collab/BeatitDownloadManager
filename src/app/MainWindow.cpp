@@ -4,6 +4,9 @@
 #include <QAbstractItemView>
 #include <QCloseEvent>
 #include <QDesktopServices>
+#include <QCheckBox>
+#include <QDateTime>
+#include <QMessageBox>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -37,15 +40,15 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     urlEdit_->setPlaceholderText("Paste URL or magnet link…");urlEdit_->setClearButtonEnabled(true);
     in->addWidget(urlEdit_,1);in->addWidget(addButton_);
     auto*fileButton=new QPushButton(QStringLiteral("＋ Torrent"),c);in->addWidget(fileButton);
-    downloadsTable_->setColumnCount(5);downloadsTable_->setHorizontalHeaderLabels({"FILE","STATUS","PROGRESS","SPEED","SOURCE"});
+    downloadsTable_->setColumnCount(6);downloadsTable_->setHorizontalHeaderLabels({"FILE","STATUS","PROGRESS","SPEED","SOURCE","LAST ACTIVITY"});
     downloadsTable_->horizontalHeader()->setSectionResizeMode(0,QHeaderView::Stretch);
     downloadsTable_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::ResizeToContents);
     downloadsTable_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::ResizeToContents);
     downloadsTable_->horizontalHeader()->setSectionResizeMode(3,QHeaderView::ResizeToContents);
-    downloadsTable_->horizontalHeader()->setSectionResizeMode(4,QHeaderView::Stretch);
+    downloadsTable_->horizontalHeader()->setSectionResizeMode(4,QHeaderView::Stretch);downloadsTable_->horizontalHeader()->setSectionResizeMode(5,QHeaderView::ResizeToContents);downloadsTable_->setSortingEnabled(true);
     downloadsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);downloadsTable_->setSelectionMode(QAbstractItemView::SingleSelection);
     downloadsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);downloadsTable_->setShowGrid(false);downloadsTable_->verticalHeader()->setVisible(false);
-    auto*a=new QHBoxLayout;a->addWidget(pauseButton_);a->addWidget(cancelButton_);a->addWidget(openButton_);a->addStretch();a->addWidget(statusLabel_);
+    auto*a=new QHBoxLayout;a->addWidget(pauseButton_);a->addWidget(cancelButton_);a->addWidget(removeButton_);a->addWidget(openButton_);a->addStretch();a->addWidget(statusLabel_);
     r->addWidget(t);r->addWidget(s);r->addLayout(in);r->addWidget(downloadsTable_,1);r->addLayout(a);setCentralWidget(c);
     setStyleSheet("QMainWindow{background:#0d1117;color:#e6edf3;} QLabel#title{font-size:34px;font-weight:700;color:white;} QLabel#subtitle{font-size:14px;color:#8b949e;margin-top:-8px;} QLineEdit{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:12px 14px;color:#f0f6fc;font-size:14px;} QLineEdit:focus{border:1px solid #7c5cff;} QPushButton{background:#21262d;border:1px solid #30363d;border-radius:10px;padding:10px 16px;color:#f0f6fc;font-weight:600;} QPushButton:hover{background:#30363d;} QPushButton#primary{background:#7c5cff;border-color:#8d72ff;} QTableWidget{background:#11161d;border:1px solid #21262d;border-radius:14px;gridline-color:transparent;color:#e6edf3;font-size:13px;} QTableWidget::item{padding:10px;border-bottom:1px solid #1d232c;} QTableWidget::item:selected{background:#2d2452;color:white;} QHeaderView::section{background:#161b22;border:none;padding:9px;color:#8b949e;font-size:11px;font-weight:700;}");
     addButton_->setObjectName("primary");setupTray();
@@ -54,6 +57,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     connect(urlEdit_,&QLineEdit::returnPressed,this,&MainWindow::addDownload);
     connect(pauseButton_,&QPushButton::clicked,this,&MainWindow::pauseSelected);
     connect(cancelButton_,&QPushButton::clicked,this,&MainWindow::cancelSelected);
+    connect(removeButton_,&QPushButton::clicked,this,&MainWindow::removeSelected);
     connect(openButton_,&QPushButton::clicked,this,&MainWindow::openSelected);
     connect(fileButton,&QPushButton::clicked,this,[this]{
         const QString p=QFileDialog::getOpenFileName(this,"Open torrent",
@@ -67,8 +71,9 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
         downloadsTable_->setItem(row,0,f);downloadsTable_->setItem(row,1,new QTableWidgetItem("Queued"));
         downloadsTable_->setItem(row,2,new QTableWidgetItem("0%"));downloadsTable_->setItem(row,3,new QTableWidgetItem("—"));
         downloadsTable_->setItem(row,4,new QTableWidgetItem(url));
+        auto *date=new QTableWidgetItem(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))); date->setData(Qt::UserRole,QDateTime::currentSecsSinceEpoch()); downloadsTable_->setItem(row,5,date);
     });
-    connect(downloadManager_,&DownloadManager::taskRestored,this,[this](const QString&id,const QString&url,const QString&filename,const QString&status,qint64 done,qint64 total){
+    connect(downloadManager_,&DownloadManager::taskRestored,this,[this](const QString&id,const QString&url,const QString&filename,const QString&status,qint64 done,qint64 total,qint64 updatedAt){
         const int row=downloadsTable_->rowCount();downloadsTable_->insertRow(row);rows_[id]=row;
         auto*f=new QTableWidgetItem(filename);f->setData(Qt::UserRole,id);downloadsTable_->setItem(row,0,f);
         downloadsTable_->setItem(row,1,new QTableWidgetItem(status));downloadsTable_->setItem(row,2,new QTableWidgetItem(total>0?QStringLiteral("%1%").arg(done*100/total):formatBytes(done)));
@@ -87,6 +92,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     connect(downloadManager_,&DownloadManager::taskCompleted,this,[this](const QString&id,const QString&path){paths_[id]=path;setStatus(id,"Completed");trayIcon_->showMessage("Beatit","Download complete");});
     connect(downloadManager_,&DownloadManager::taskFailed,this,[this](const QString&id,const QString&e){setStatus(id,"Failed");trayIcon_->showMessage("Beatit",e,QSystemTrayIcon::Warning);});
     connect(downloadManager_,&DownloadManager::taskCancelled,this,[this](const QString&id){setStatus(id,"Cancelled");});
+    connect(downloadManager_,&DownloadManager::taskRemoved,this,[this](const QString&id){ const int row=rows_.value(id,-1); if(row<0)return; downloadsTable_->removeRow(row); rows_.remove(id); for(auto it=rows_.begin();it!=rows_.end();++it) if(it.value()>row)--it.value(); statusLabel_->setText("Removed"); });
 
     connect(torrentEngine_,&TorrentEngine::torrentAdded,this,[this](const QString&id,const QString&name){
         const int existingRow=rows_.value(id,-1);
@@ -120,4 +126,26 @@ void MainWindow::addDownload(){
 }
 void MainWindow::pauseSelected(){const QString id=selectedId();if(id.startsWith("torrent-"))torrentEngine_->pause(id);else if(!id.isEmpty())downloadManager_->pause(id);}
 void MainWindow::cancelSelected(){const QString id=selectedId();if(id.startsWith("torrent-"))torrentEngine_->remove(id);else if(!id.isEmpty())downloadManager_->cancel(id);}
+void MainWindow::removeSelected(){
+    const QString id=selectedId();
+    if(id.isEmpty()) return;
+
+    QCheckBox *deleteFile = new QCheckBox(QStringLiteral("Also delete the downloaded file from the SSD"), this);
+    deleteFile->setChecked(false);
+
+    QMessageBox box(this);
+    box.setWindowTitle(QStringLiteral("Remove download"));
+    box.setText(QStringLiteral("Remove this download from Beatit history?"));
+    box.setInformativeText(QStringLiteral("The downloaded file will be kept unless you tick the box below."));
+    box.setIcon(QMessageBox::Question);
+    box.setCheckBox(deleteFile);
+    box.setStandardButtons(QMessageBox::Cancel | QMessageBox::Ok);
+    box.setDefaultButton(QMessageBox::Cancel);
+    if(box.exec()!=QMessageBox::Ok) return;
+
+    const bool eraseFile=deleteFile->isChecked();
+    if(id.startsWith(QStringLiteral("torrent-"))) torrentEngine_->remove(id, eraseFile);
+    else downloadManager_->remove(id, eraseFile);
+}
+
 void MainWindow::openSelected(){const QString id=selectedId();const QString path=paths_.value(id);if(!path.isEmpty())QDesktopServices::openUrl(QUrl::fromLocalFile(path));}
