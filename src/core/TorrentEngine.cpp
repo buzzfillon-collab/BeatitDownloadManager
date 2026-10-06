@@ -1,4 +1,4 @@
-#iQVector<int> TorrentEngine::filePriorities(const QString &id) const {
+QVector<int> TorrentEngine::filePriorities(const QString &id) const {
     QVector<int> out;
     const auto it = torrents_.constFind(id);
     if (it == torrents_.constEnd() || !it->handle.is_valid()) return out;
