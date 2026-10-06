@@ -56,7 +56,7 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent),
 urlEdit_(new QLineEdit(this)),addButton_(new QPushButton(QStringLiteral("＋ Add"),this)),
 pauseButton_(new QPushButton(QStringLiteral("Pause"),this)),cancelButton_(new QPushButton(QStringLiteral("Cancel"),this)),
 removeButton_(new QPushButton(QStringLiteral("Remove"),this)),
-openButton_(new QPushButton(QStringLiteral("Open"),this)),downloadsTable_(new QTableWidget(this)),
+openButton_(new QPushButton(QStringLiteral("Open"),this)), recheckButton_(new QPushButton(QStringLiteral("Recheck"),this)),downloadsTable_(new QTableWidget(this)),
 statusLabel_(new QLabel(QStringLiteral("Ready"),this)),downloadManager_(new DownloadManager(this)),
 torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
     setWindowTitle("Beatit");setWindowIcon(beatitIcon());setMinimumSize(1050,650);resize(1180,720);
@@ -125,7 +125,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     downloadsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);downloadsTable_->setShowGrid(false);downloadsTable_->verticalHeader()->setVisible(false);
     downloadsTable_->verticalHeader()->setDefaultSectionSize(58);
 
-    auto *a=new QHBoxLayout;a->setSpacing(8);a->addWidget(pauseButton_);a->addWidget(cancelButton_);a->addWidget(removeButton_);a->addWidget(openButton_);a->addStretch();a->addWidget(statusLabel_);
+    auto *a=new QHBoxLayout;a->setSpacing(8);a->addWidget(pauseButton_);a->addWidget(cancelButton_);a->addWidget(removeButton_);a->addWidget(openButton_);a->addWidget(recheckButton_);a->addStretch();a->addWidget(statusLabel_);
     r->addWidget(downloadsTable_,1);r->addLayout(a);body->addWidget(content,1);
     mainLayout->addLayout(body,1);setCentralWidget(root);
 
@@ -162,6 +162,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     connect(cancelButton_,&QPushButton::clicked,this,&MainWindow::cancelSelected);
     connect(removeButton_,&QPushButton::clicked,this,&MainWindow::removeSelected);
     connect(openButton_,&QPushButton::clicked,this,&MainWindow::openSelected);
+    connect(recheckButton_,&QPushButton::clicked,this,&MainWindow::recheckSelected);
     connect(settingsButton,&QPushButton::clicked,this,&MainWindow::showSettings);
     connect(fileButton,&QPushButton::clicked,this,[this]{
         const QString p=QFileDialog::getOpenFileName(this,"Open torrent",
@@ -275,6 +276,21 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
                 statusLabel_->setText(QStringLiteral("Torrent waiting for complete swarm availability"));
             }
         });
+    connect(torrentEngine_,&TorrentEngine::torrentStatusChanged,this,[this](const QString&id,const QString&s){
+        setStatus(id,s);
+        if (s.contains(QStringLiteral("Seeding stopped"))) statusLabel_->setText(QStringLiteral("Torrent seeding policy reached"));
+    });
+    connect(torrentEngine_,&TorrentEngine::torrentHealthChanged,this,[this](const QString&id,bool tracker,bool dht,int known,int candidates){
+        Q_UNUSED(id);
+        statusLabel_->setText(QStringLiteral("Torrent health: tracker %1 • DHT %2 • known peers %3 • candidates %4")
+            .arg(tracker?QStringLiteral("OK"):QStringLiteral("idle"))
+            .arg(dht?QStringLiteral("OK"):QStringLiteral("idle")).arg(known).arg(candidates));
+    });
+    connect(torrentEngine_,&TorrentEngine::torrentStalled,this,[this](const QString&id,int seconds){
+        setStatus(id,QStringLiteral("Stalled"));
+        statusLabel_->setText(QStringLiteral("Torrent stalled for %1 min").arg(seconds/60));
+        trayIcon_->showMessage(QStringLiteral("Beatit"),QStringLiteral("Torrent stalled: %1").arg(id),QSystemTrayIcon::Warning);
+    });
     connect(torrentEngine_,&TorrentEngine::torrentError,this,[this](const QString&,const QString&e){trayIcon_->showMessage("Beatit",e,QSystemTrayIcon::Warning);});
 }
 void MainWindow::setupTray(){trayIcon_->setIcon(windowIcon());trayIcon_->setToolTip("Beatit Download Manager");trayMenu_->addAction("Show Beatit",this,&MainWindow::showFromTray);trayMenu_->addSeparator();trayMenu_->addAction("Exit",this,&MainWindow::exitFromTray);trayIcon_->setContextMenu(trayMenu_);connect(trayIcon_,&QSystemTrayIcon::activated,this,[this](QSystemTrayIcon::ActivationReason r){if(r==QSystemTrayIcon::DoubleClick||r==QSystemTrayIcon::Trigger)showFromTray();});trayIcon_->show();}
@@ -317,6 +333,12 @@ void MainWindow::removeSelected(){
 }
 
 void MainWindow::openSelected(){const QString id=selectedId();const QString path=paths_.value(id);if(!path.isEmpty())QDesktopServices::openUrl(QUrl::fromLocalFile(path));}
+void MainWindow::recheckSelected(){
+    const QString id=selectedId();
+    if (!id.startsWith(QStringLiteral("torrent-"))) { statusLabel_->setText(QStringLiteral("Select a torrent first")); return; }
+    torrentEngine_->forceRecheck(id);
+    statusLabel_->setText(QStringLiteral("Rechecking torrent files…"));
+}
 void MainWindow::showSettings(){
     QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
     bool ok=false;
