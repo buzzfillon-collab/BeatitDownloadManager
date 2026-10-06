@@ -151,9 +151,11 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         const CURLcode code=curl_easy_perform(curl);
         long response=0; curl_easy_getinfo(curl,CURLINFO_RESPONSE_CODE,&response);
         curl_off_t length=-1; curl_easy_getinfo(curl,CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,&length);
-        char *accept=nullptr; curl_easy_getinfo(curl,CURLINFO_ACCEPT_RANGES,&accept);
+        HeaderContext headers;
+        curl_easy_setopt(curl,CURLOPT_HEADERFUNCTION,headerCallback);
+        curl_easy_setopt(curl,CURLOPT_HEADERDATA,&headers);
         total=length>=0?static_cast<qint64>(length):-1;
-        ranges=accept&&qstricmp(accept,"bytes")==0;
+        ranges=headers.acceptsRanges;
         curl_easy_cleanup(curl);
         return code==CURLE_OK&&response>=200&&response<400;
     };
