@@ -46,7 +46,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
     downloadsTable_->horizontalHeader()->setSectionResizeMode(1,QHeaderView::ResizeToContents);
     downloadsTable_->horizontalHeader()->setSectionResizeMode(2,QHeaderView::ResizeToContents);
     downloadsTable_->horizontalHeader()->setSectionResizeMode(3,QHeaderView::ResizeToContents);
-    downloadsTable_->horizontalHeader()->setSectionResizeMode(4,QHeaderView::Stretch);downloadsTable_->horizontalHeader()->setSectionResizeMode(5,QHeaderView::ResizeToContents);downloadsTable_->setSortingEnabled(true);
+    downloadsTable_->horizontalHeader()->setSectionResizeMode(4,QHeaderView::Stretch);downloadsTable_->horizontalHeader()->setSectionResizeMode(5,QHeaderView::ResizeToContents);downloadsTable_->setSortingEnabled(true);downloadsTable_->horizontalHeader()->setSortIndicator(5,Qt::DescendingOrder);downloadsTable_->sortItems(5,Qt::DescendingOrder);
     downloadsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);downloadsTable_->setSelectionMode(QAbstractItemView::SingleSelection);
     downloadsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);downloadsTable_->setShowGrid(false);downloadsTable_->verticalHeader()->setVisible(false);
     auto*a=new QHBoxLayout;a->addWidget(pauseButton_);a->addWidget(cancelButton_);a->addWidget(removeButton_);a->addWidget(openButton_);a->addStretch();a->addWidget(statusLabel_);
@@ -106,7 +106,7 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
         auto *date=new QTableWidgetItem(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))); date->setData(Qt::UserRole,QDateTime::currentSecsSinceEpoch()); downloadsTable_->setItem(row,5,date);
     });
     connect(torrentEngine_,&TorrentEngine::torrentProgress,this,[this](const QString&id,int progress,qint64 done,qint64,qint64 down,qint64,int peers){
-        const int row=rows_.value(id,-1);if(row<0)return;downloadsTable_->item(row,1)->setText(QStringLiteral("Torrent • %1 peers").arg(peers));
+        const int row=rowForId(id);if(row<0)return;downloadsTable_->item(row,1)->setText(QStringLiteral("Torrent • %1 peers").arg(peers));
         downloadsTable_->item(row,2)->setText(QStringLiteral("%1%").arg(progress));downloadsTable_->item(row,3)->setText(formatSpeed(down));
         statusLabel_->setText(QStringLiteral("%1 downloaded").arg(formatBytes(done)));
     });
