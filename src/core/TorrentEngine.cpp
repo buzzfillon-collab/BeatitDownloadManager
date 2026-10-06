@@ -12,7 +12,8 @@
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
 #include <libtorrent/magnet_uri.hpp>
-#include <libtorrent/resume_data.hpp>
+#include <libtorrent/read_resume_data.hpp>
+#include <libtorrent/write_resume_data.hpp>
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/torrent_info.hpp>
 
@@ -31,7 +32,7 @@ TorrentEngine::TorrentEngine(QObject *parent) : QObject(parent) {
     lt::settings_pack settings;
     settings.set_int(lt::settings_pack::alert_mask,
         lt::alert_category::error | lt::alert_category::status |
-        lt::alert_category::storage | lt::alert_category::progress);
+        lt::alert_category::storage);
     settings.set_int(lt::settings_pack::active_downloads, maxActiveDownloads_);
     settings.set_int(lt::settings_pack::active_seeds, maxActiveDownloads_);
     settings.set_bool(lt::settings_pack::enable_dht, true);
@@ -211,9 +212,11 @@ void TorrentEngine::persistStatus(const QString &id, const lt::torrent_status &s
         copy.downloadedBytes = status.total_done;
         copy.totalBytes = status.total_wanted;
         copy.speed = status.download_rate;
+        const auto torrentIt = torrents_.constFind(id);
+        const bool userPaused = torrentIt != torrents_.constEnd() && torrentIt->userPaused;
         copy.status = status.is_finished
             ? QStringLiteral("Completed")
-            : (it->userPaused ? QStringLiteral("Paused") : QStringLiteral("Downloading"));
+            : (userPaused ? QStringLiteral("Paused") : QStringLiteral("Downloading"));
         database_->save(copy);
         return;
     }
@@ -352,12 +355,12 @@ void TorrentEngine::scheduleTorrents() {
         const auto status = it->handle.status();
         if (it->userPaused) {
             it->scheduled = false;
-            if (!status.paused) it->handle.pause();
+            if (!(it->handle.flags() & lt::torrent_flags::paused)) it->handle.pause();
             continue;
         }
-        if (!status.is_finished && it->scheduled && !status.paused)
+        if (!status.is_finished && it->scheduled && !(it->handle.flags() & lt::torrent_flags::paused))
             ++activeDownloads;
-        if (status.is_finished && !status.paused)
+        if (status.is_finished && !(it->handle.flags() & lt::torrent_flags::paused))
             it->scheduled = true;
     }
 
