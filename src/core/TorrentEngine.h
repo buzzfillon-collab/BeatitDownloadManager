@@ -48,6 +48,7 @@ private:
 
     void scheduleTorrents();
     void saveOneResume(const QString &id, const lt::torrent_handle &handle);
+    void persistStatus(const QString &id, const lt::torrent_status &status);
 
     std::unique_ptr<lt::session> session_;
     QTimer alertTimer_;
@@ -56,4 +57,5 @@ private:
     int maxActiveDownloads_ = 5;
     QString resumeDirectory_;
     std::unique_ptr<DownloadDatabase> database_;
+    qint64 lastResumeSave_ = 0;
 };
