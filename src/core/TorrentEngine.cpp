@@ -463,22 +463,24 @@ void TorrentEngine::scheduleTorrents() {
             continue;
         }
         if (it->availabilityWaiting && !it->availabilityOverride) {
-            if (status.has_metadata && status.num_peers > 0 && wholeFileAvailable(status)) {
+            if (status.has_metadata && status.list_peers > 0 && wholeFileAvailable(status)) {
                 it->availabilityWaiting = false;
                 it->availabilityPrompted = false;
                 it->scheduled = false;
                 emit torrentStatusChanged(it.key(), QStringLiteral("Availability complete — starting"));
             } else {
-                it->scheduled = false;
-                if (!(it->handle.flags() & lt::torrent_flags::paused)) it->handle.pause();
+                it->scheduled = true;
+                it->handle.set_flags(lt::torrent_flags::upload_mode);
+                it->handle.resume();
                 continue;
             }
         }
         if (!it->availabilityOverride && status.has_metadata && status.num_peers > 0 &&
             !status.is_finished && !wholeFileAvailable(status)) {
             it->availabilityWaiting = true;
-            it->scheduled = false;
-            if (!(it->handle.flags() & lt::torrent_flags::paused)) it->handle.pause();
+            it->scheduled = true;
+            it->handle.set_flags(lt::torrent_flags::upload_mode);
+            it->handle.resume();
             if (!it->availabilityPrompted) {
                 it->availabilityPrompted = true;
                 emit torrentAvailabilityQuestion(it.key(), QString::fromStdString(status.name),
@@ -558,11 +560,12 @@ void TorrentEngine::pollAlerts() {
         auto status = entry.handle.status();
 
         if (!entry.userPaused && !entry.seedStopped && !entry.availabilityOverride &&
-            status.has_metadata && status.num_peers > 0 && !status.is_finished &&
+            status.has_metadata && status.list_peers > 0 && !status.is_finished &&
             !wholeFileAvailable(status)) {
             entry.availabilityWaiting = true;
-            entry.scheduled = false;
-            entry.handle.pause();
+            entry.scheduled = true;
+            entry.handle.set_flags(lt::torrent_flags::upload_mode);
+            entry.handle.resume();
             if (!entry.availabilityPrompted) {
                 entry.availabilityPrompted = true;
                 emit torrentAvailabilityQuestion(it.key(), QString::fromStdString(status.name),
@@ -571,11 +574,12 @@ void TorrentEngine::pollAlerts() {
         }
 
         if (entry.availabilityWaiting && !entry.availabilityOverride &&
-            status.has_metadata && status.num_peers > 0 && wholeFileAvailable(status)) {
+            status.has_metadata && status.list_peers > 0 && wholeFileAvailable(status)) {
             entry.availabilityWaiting = false;
             entry.availabilityPrompted = false;
             entry.scheduled = false;
-            if (!(entry.handle.flags() & lt::torrent_flags::paused)) entry.handle.resume();
+            entry.handle.unset_flags(lt::torrent_flags::upload_mode);
+            entry.handle.resume();
             emit torrentStatusChanged(it.key(), QStringLiteral("Availability complete — starting"));
             scheduleTorrents();
             status = entry.handle.status();
