@@ -20,6 +20,7 @@ add_executable(BeatitDownloadManager WIN32
     src/core/TorrentEngine.cpp src/core/TorrentEngine.h)
 
 target_include_directories(BeatitDownloadManager PRIVATE src)
+target_compile_definitions(BeatitDownloadManager PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 target_link_libraries(BeatitDownloadManager PRIVATE Qt6::Widgets CURL::libcurl LibtorrentRasterbar::torrent-rasterbar unofficial::sqlite3::sqlite3)
 
 if(MSVC)
