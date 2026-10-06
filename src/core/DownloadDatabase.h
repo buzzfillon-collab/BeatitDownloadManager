@@ -13,6 +13,7 @@ struct PersistedDownload {
     qint64 downloadedBytes = 0;
     qint64 speed = 0;
     QString error;
+    qint64 updatedAt = 0;
 };
 
 class DownloadDatabase final {
@@ -21,6 +22,7 @@ public:
     ~DownloadDatabase();
     bool open();
     bool save(const PersistedDownload &download);
+    bool remove(const QString &id);
     QVector<PersistedDownload> loadActive() const;
     QVector<PersistedDownload> loadHistory() const;
     QString path() const;
