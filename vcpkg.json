@@ -1,5 +1,5 @@
 {
- "name":"beatit-download-manager",
- "version-string":"0.1.0",
- "dependencies":["curl","libtorrent","qtbase"]
+  "name": "beatit-download-manager",
+  "version-string": "0.1.0",
+  "dependencies": ["curl", "libtorrent", "sqlite3"]
 }
