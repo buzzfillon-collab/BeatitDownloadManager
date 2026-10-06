@@ -40,7 +40,7 @@ size_t writeCallback(char *ptr,size_t size,size_t nmemb,void *userdata) {
 int progressCallback(void *clientp,curl_off_t,curl_off_t,curl_off_t,curl_off_t) {
     return static_cast<CurlContext*>(clientp)->owner->isCancelRequested()?1:0;
 }
-struct HeaderContext { qint64 contentRangeTotal=-1; };
+struct HeaderContext { qint64 contentRangeTotal=-1; bool acceptsRanges=false; };
 size_t headerCallback(char *buffer,size_t size,size_t nitems,void *userdata) {
     auto *ctx=static_cast<HeaderContext*>(userdata);
     const QString line=QString::fromUtf8(buffer,static_cast<int>(size*nitems)).trimmed();
@@ -48,6 +48,8 @@ size_t headerCallback(char *buffer,size_t size,size_t nitems,void *userdata) {
                                         QRegularExpression::CaseInsensitiveOption);
     const auto m=rx.match(line);
     if(m.hasMatch()&&m.captured(1)!=QStringLiteral("*")) ctx->contentRangeTotal=m.captured(1).toLongLong();
+    static const QRegularExpression ar(QStringLiteral(R"(^Accept-Ranges:\s*bytes\s*$)"), QRegularExpression::CaseInsensitiveOption);
+    if(ar.match(line).hasMatch()) ctx->acceptsRanges=true;
     return size*nitems;
 }
 }
@@ -154,10 +156,13 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         HeaderContext headers;
         curl_easy_setopt(curl,CURLOPT_HEADERFUNCTION,headerCallback);
         curl_easy_setopt(curl,CURLOPT_HEADERDATA,&headers);
-        total=length>=0?static_cast<qint64>(length):-1;
+        const CURLcode headerCode = curl_easy_perform(curl);
+        long headerResponse=0; curl_easy_getinfo(curl,CURLINFO_RESPONSE_CODE,&headerResponse);
+        curl_off_t headerLength=-1; curl_easy_getinfo(curl,CURLINFO_CONTENT_LENGTH_DOWNLOAD_T,&headerLength);
+        total=headerLength>=0?static_cast<qint64>(headerLength):-1;
         ranges=headers.acceptsRanges;
         curl_easy_cleanup(curl);
-        return code==CURLE_OK&&response>=200&&response<400;
+        return headerCode==CURLE_OK&&headerResponse>=200&&headerResponse<400;
     };
 
     qint64 total=-1; bool ranges=false;
@@ -184,14 +189,14 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         for(int i=0;i<bounds.size();i++)
             jobs.push_back(std::async(std::launch::async,[&,i]{return fetchSegment(this,url,files[i],bounds[i].first,bounds[i].second);}));
         qint64 done=0;
-        bool failed=false; QString error;
+        bool segmentFailed=false; QString error;
         for(int i=0;i<jobs.size();i++){
             const auto result=jobs[i].get();
             if(result.cancelled){for(const auto &f:files)QFile::remove(f);if(pauseRequested_){emit paused(done);}else emit cancelled();return;}
-            if(!result.ok){failed=true;error=result.error;break;}
+            if(!result.ok){segmentFailed=true;error=result.error;break;}
             done+=result.bytes;emit progress(done,total,0);
         }
-        if(failed){for(const auto &f:files)QFile::remove(f);emit failed(error);return;}
+        if(segmentFailed){for(const auto &f:files)QFile::remove(f);emit failed(error);return;}
         QFile out(partPath);
         if(!out.open(QIODevice::WriteOnly|QIODevice::Truncate)){for(const auto &f:files)QFile::remove(f);emit failed("Unable to assemble segmented download.");return;}
         for(const auto &f:files){QFile in(f);if(!in.open(QIODevice::ReadOnly)||out.write(in.readAll())<0){out.close();for(const auto &x:files)QFile::remove(x);emit failed("Unable to assemble segmented download.");return;}in.close();QFile::remove(f);}
