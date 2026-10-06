@@ -8,17 +8,19 @@ set(CMAKE_AUTOMOC ON)
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 find_package(CURL REQUIRED)
 find_package(LibtorrentRasterbar CONFIG REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
 
 add_executable(BeatitDownloadManager WIN32
     src/main.cpp
     src/app/MainWindow.cpp src/app/MainWindow.h
     src/core/DownloadManager.cpp src/core/DownloadManager.h
     src/core/DownloadTask.cpp src/core/DownloadTask.h
+    src/core/DownloadDatabase.cpp src/core/DownloadDatabase.h
     src/core/HttpDownloader.cpp src/core/HttpDownloader.h
     src/core/TorrentEngine.cpp src/core/TorrentEngine.h)
 
 target_include_directories(BeatitDownloadManager PRIVATE src)
-target_link_libraries(BeatitDownloadManager PRIVATE Qt6::Widgets CURL::libcurl LibtorrentRasterbar::torrent-rasterbar)
+target_link_libraries(BeatitDownloadManager PRIVATE Qt6::Widgets CURL::libcurl LibtorrentRasterbar::torrent-rasterbar unofficial::sqlite3::sqlite3)
 
 if(MSVC)
     target_compile_options(BeatitDownloadManager PRIVATE /W4 /permissive-)
