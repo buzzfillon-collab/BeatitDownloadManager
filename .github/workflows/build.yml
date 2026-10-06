@@ -8,26 +8,35 @@ on:
 permissions:
   contents: write
 
+env:
+  QT_VERSION: '6.8.3'
+
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Set up Python for Qt installer
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: '6.8.*'
+          version: ${{ env.QT_VERSION }}
           arch: win64_msvc2022_64
+          modules: qtbase
           cache: true
+          cache-key-prefix: qt-windows-x64
 
       - name: Cache vcpkg packages
         uses: actions/cache@v4
         with:
           path: ~/vcpkg-cache
-          key: vcpkg-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-{{ hashFiles('vcpkg.json') }}
 
       - name: Configure
         shell: pwsh
@@ -40,15 +49,15 @@ jobs:
         shell: pwsh
         run: |
           $env:VCPKG_DEFAULT_BINARY_CACHE = "$HOME/vcpkg-cache"
-          cmake --build build --config Release
+          cmake --build build --config Release --parallel
 
       - name: Bundle Qt DLLs
         shell: pwsh
-        run: windeployqt --release build/Release/BeatitDownloadManager.exe
+        run: windeployqt --release --no-translations build/Release/BeatitDownloadManager.exe
 
       - name: Zip portable build
         shell: pwsh
-        run: Compress-Archive -Path build/Release/* -DestinationPath BeatitDownloadManager-win64.zip
+        run: Compress-Archive -Path build/Release/* -DestinationPath BeatitDownloadManager-win64.zip -Force
 
       - uses: actions/upload-artifact@v4
         with:
@@ -60,3 +69,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: BeatitDownloadManager-win64.zip
+          generate_release_notes: true
