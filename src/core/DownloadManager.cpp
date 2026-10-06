@@ -2,6 +2,8 @@
 #include "HttpDownloader.h"
 
 #include <QFileInfo>
+#include <QFile>
+#include <QDir>
 #include <QMetaObject>
 #include <QThread>
 #include <QTimer>
@@ -26,7 +28,7 @@ DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
 
     QTimer::singleShot(0, this, [this] {
         for (const auto &d : database_.loadHistory())
-            emit taskRestored(d.id, d.source, d.filename, d.status, d.downloadedBytes, d.totalBytes);
+            emit taskRestored(d.id, d.source, d.filename, d.status, d.downloadedBytes, d.totalBytes, d.updatedAt);
         startNextQueued();
     });
 }
@@ -142,9 +144,26 @@ void DownloadManager::startNextQueued() {
 
         connect(downloader, &HttpDownloader::cancelled, this,
             [this, id, stopThread] {
-                persist(id, QStringLiteral("Cancelled"), queued_.value(id).downloadedBytes,
-                        queued_.value(id).totalBytes);
-                emit taskCancelled(id);
+                if (pendingRemoval_.contains(id)) {
+                    const bool deleteFile = pendingDeleteFile_.value(id);
+                    const auto d = queued_.value(id);
+                    const QString path = QDir(d.destination).filePath(d.filename);
+                    if (deleteFile) {
+                        QFile::remove(path);
+                        QFile::remove(path + QStringLiteral(".part"));
+                        for (int i = 0; i < 16; ++i)
+                            QFile::remove(path + QStringLiteral(".part.%1").arg(i));
+                    }
+                    database_.remove(id);
+                    queued_.remove(id);
+                    pendingRemoval_.remove(id);
+                    pendingDeleteFile_.remove(id);
+                    emit taskRemoved(id);
+                } else {
+                    persist(id, QStringLiteral("Cancelled"), queued_.value(id).downloadedBytes,
+                            queued_.value(id).totalBytes);
+                    emit taskCancelled(id);
+                }
                 stopThread();
             });
 
@@ -184,4 +203,28 @@ void DownloadManager::cancel(const QString &id) {
         database_.save(queued_[id]);
         emit taskCancelled(id);
     }
+}
+
+void DownloadManager::remove(const QString &id, bool deleteFile) {
+    if (active_.contains(id)) {
+        pendingRemoval_[id] = true;
+        pendingDeleteFile_[id] = deleteFile;
+        QMetaObject::invokeMethod(active_.value(id).downloader, "cancel", Qt::DirectConnection);
+        return;
+    }
+
+    auto it = queued_.find(id);
+    if (it == queued_.end()) return;
+
+    const auto d = it.value();
+    if (deleteFile) {
+        const QString path = QDir(d.destination).filePath(d.filename);
+        QFile::remove(path);
+        QFile::remove(path + QStringLiteral(".part"));
+        for (int i = 0; i < 16; ++i)
+            QFile::remove(path + QStringLiteral(".part.%1").arg(i));
+    }
+    database_.remove(id);
+    queued_.erase(it);
+    emit taskRemoved(id);
 }
