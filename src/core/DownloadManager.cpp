@@ -60,6 +60,10 @@ void DownloadManager::setMaxActive(int count) {
     startNextQueued();
 }
 
+void DownloadManager::setHttpConnections(int count) {
+    httpConnections_ = qBound(1, count, 8);
+}
+
 QString DownloadManager::addUrl(const QString &url, const QString &destination) {
     const QString id = QStringLiteral("download-%1").arg(nextId_++);
     PersistedDownload d;
@@ -97,7 +101,8 @@ void DownloadManager::startNextQueued() {
         downloader->moveToThread(thread);
         active_.insert(id, ActiveTask{d.source, d.destination, downloader, thread});
 
-        connect(thread, &QThread::started, downloader, [downloader, d] {
+        connect(thread, &QThread::started, downloader, [downloader, d, this] {
+            downloader->setSegments(httpConnections_);
             downloader->start(d.source, d.destination);
         });
 
