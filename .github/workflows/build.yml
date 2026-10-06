@@ -28,7 +28,6 @@ jobs:
         with:
           version: ${{ env.QT_VERSION }}
           arch: win64_msvc2022_64
-          modules: qtbase
           cache: true
           cache-key-prefix: qt-windows-x64
 
