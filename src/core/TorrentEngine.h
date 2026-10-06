@@ -4,6 +4,7 @@
 #include <QString>
 #include <QTimer>
 #include <memory>
+#include <QDir>
 #include <libtorrent/session.hpp>
 #include <libtorrent/torrent_handle.hpp>
 
@@ -17,6 +18,7 @@ public:
     void pause(const QString &id);
     void resume(const QString &id);
     void remove(const QString &id, bool deleteFiles = false);
+    void saveResumeData();
 signals:
     void torrentAdded(const QString &id, const QString &name);
     void torrentProgress(const QString &id, int progress, qint64 downloaded, qint64 total,
@@ -25,10 +27,12 @@ signals:
     void torrentError(const QString &id, const QString &error);
 private slots:
     void pollAlerts();
+    void restoreResumeData();
 private:
     struct TorrentEntry { QString id; lt::torrent_handle handle; bool completedNotified = false; };
     std::unique_ptr<lt::session> session_;
     QTimer alertTimer_;
     QHash<QString, TorrentEntry> torrents_;
     int nextId_ = 1;
+    QString resumeDirectory_;
 };
