@@ -20,7 +20,9 @@ public:
     void remove(const QString &id, bool deleteFile = false);
     void resume(const QString &id);
     void setMaxActive(int count);
+    void setHttpConnections(int count);
     int maxActive() const noexcept { return maxActive_; }
+    int httpConnections() const noexcept { return httpConnections_; }
 
 signals:
     void taskAdded(const QString &id, const QString &url);
@@ -48,6 +50,7 @@ private:
 
     int nextId_ = 1;
     int maxActive_ = 3;
+    int httpConnections_ = 8;
     QHash<QString, ActiveTask> active_;
     QHash<QString, PersistedDownload> queued_;
     QHash<QString, bool> pendingRemoval_;
