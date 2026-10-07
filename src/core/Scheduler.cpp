@@ -73,6 +73,10 @@ int Scheduler::endMinute(int dayOfWeek) const {
 bool Scheduler::allowedNow(const QDateTime &now) const {
     if (!enabled_) return true;
 
+    bool anyEnabled = false;
+    for (const auto &window : days_) if (window.enabled) { anyEnabled = true; break; }
+    if (!anyEnabled) return true;
+
     const QTime time = now.time();
     const int minute = time.hour() * 60 + time.minute();
     const int day = now.date().dayOfWeek();
