@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <QCoreApplication>
 #include <QFileInfo>
 #include <QJsonDocument>
