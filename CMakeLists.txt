@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
 find_package(CURL REQUIRED)
 find_package(LibtorrentRasterbar CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
@@ -24,7 +24,7 @@ add_executable(BeatitDownloadManager WIN32
 target_include_directories(BeatitDownloadManager PRIVATE src)
 
 add_executable(BeatitBrowserHost src/browser/NativeHost.cpp)
-target_link_libraries(BeatitBrowserHost PRIVATE Qt6::Core)
+target_link_libraries(BeatitBrowserHost PRIVATE Qt6::Core Qt6::Network)
 target_compile_definitions(BeatitDownloadManager PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 target_link_libraries(BeatitDownloadManager PRIVATE Qt6::Widgets CURL::libcurl LibtorrentRasterbar::torrent-rasterbar unofficial::sqlite3::sqlite3)
 
