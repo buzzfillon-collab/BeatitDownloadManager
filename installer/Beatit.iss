@@ -21,7 +21,6 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesAssociations=yes
 UninstallDisplayIcon={app}/{#MyAppExeName}
-OutputManifestFile=BeatitDownloadManager-win64-setup.manifest
 DisableProgramGroupPage=yes
 
 [Tasks]
