@@ -4,7 +4,7 @@
 #include <QSystemTrayIcon>
 
 class QLabel; class QLineEdit; class QPushButton; class QTableWidget; class QCloseEvent; class QCheckBox;
-class QMenu; class DownloadManager; class TorrentEngine;
+class QMenu; class DownloadManager; class TorrentEngine; class BrowserBridge;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -22,6 +22,7 @@ private slots:
     void showSettings();
     void showFromTray();
     void exitFromTray();
+    void handleBrowserCapture(const QString &url, const QString &title, const QString &kind);
 private:
     int selectedRow() const;
     QString selectedId() const;
@@ -32,5 +33,6 @@ private:
     QPushButton *cancelButton_; QPushButton *removeButton_; QPushButton *openButton_; QPushButton *recheckButton_; QTableWidget *downloadsTable_;
     QLabel *statusLabel_; DownloadManager *downloadManager_; TorrentEngine *torrentEngine_;
     QSystemTrayIcon *trayIcon_; QMenu *trayMenu_;
+    BrowserBridge *browserBridge_;
     QHash<QString, QString> paths_; QHash<QString, int> rows_; bool reallyQuit_ = false;
 };
