@@ -101,17 +101,18 @@ void DownloadManager::setSchedulerAllowed(bool allowed) {
     }
 }
 
-void DownloadManager::setExpectedSha256(const QString &id, const QString &sha256) {
+bool DownloadManager::setExpectedSha256(const QString &id, const QString &sha256) {
     const QString normalized = sha256.trimmed().toLower();
     if (normalized.size() != 64 || normalized.contains(QRegularExpression(QStringLiteral("[^0-9a-f]"))))
-        return;
+        return false;
     auto it = queued_.find(id);
-    if (it == queued_.end()) return;
+    if (it == queued_.end()) return false;
     it->sha256 = normalized;
     it->verification.clear();
     database_.save(it.value());
     if (auto active = active_.find(id); active != active_.end())
         active->downloader->setExpectedSha256(normalized);
+    return true;
 }
 
 bool DownloadManager::verifyChecksum(const QString &id, QString *message) {
