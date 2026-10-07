@@ -1,12 +1,4 @@
-QVector<int> TorrentEngine::filePriorities(const QString &id) const {
-    QVector<int> out;
-    const auto it = torrents_.constFind(id);
-    if (it == torrents_.constEnd() || !it->handle.is_valid()) return out;
-    for (auto p : it->handle.get_file_priorities()) out.push_back(static_cast<int>(p));
-    return out;
-}
-
-nclude "TorrentEngine.h"
+#include "TorrentEngine.h"
 #include "DownloadDatabase.h"
 
 #include <QDir>
@@ -247,7 +239,6 @@ bool TorrentEngine::shouldStopSeeding(const lt::torrent_status &status) const {
     if (status.total_done <= 0) return false;
     return static_cast<double>(status.all_time_upload) / static_cast<double>(status.total_done) >= seedingRatio_;
 }
-
 void TorrentEngine::loadSettings() {
     QSettings s(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
     seedingPolicyMode_ = qBound(0, s.value(QStringLiteral("torrent/seedingMode"), 0).toInt(), 3);
@@ -497,8 +488,7 @@ void TorrentEngine::scheduleTorrents() {
             it->scheduled = true;
             it->handle.set_flags(lt::torrent_flags::upload_mode);
             it->handle.resume();
-            if (!it->availabilityPrompted) {
-                it->availabilityPrompted = true;
+            if (!it->availabilityPrompted) {                it->availabilityPrompted = true;
                 emit torrentAvailabilityQuestion(it.key(), QString::fromStdString(status.name),
                     status.distributed_copies, status.num_peers);
             }
