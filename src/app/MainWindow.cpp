@@ -521,6 +521,26 @@ int MainWindow::selectedRow()const{auto r=downloadsTable_->selectedRanges();retu
 QString MainWindow::selectedId()const{const int row=selectedRow();return row<0||!downloadsTable_->item(row,0)?QString():downloadsTable_->item(row,0)->data(Qt::UserRole).toString();}
 void MainWindow::setStatus(const QString&id,const QString&status){const int row=rowForId(id);if(row>=0)downloadsTable_->item(row,1)->setText(status);}
 int MainWindow::rowForId(const QString&id)const{for(int row=0;row<downloadsTable_->rowCount();++row)if(downloadsTable_->item(row,0)&&downloadsTable_->item(row,0)->data(Qt::UserRole).toString()==id)return row;return -1;}
+void MainWindow::handleExternalCommand(const QStringList &arguments) {
+    for (const QString &argument : arguments) {
+        const QString value = argument.trimmed();
+        if (value.isEmpty() || value == QStringLiteral("--hidden")) continue;
+        if (value.startsWith(QStringLiteral("magnet:?")) ||
+            value.startsWith(QStringLiteral("http://")) ||
+            value.startsWith(QStringLiteral("https://"))) {
+            urlEdit_->setText(value);
+            addDownload();
+            showFromTray();
+            return;
+        }
+        if (value.endsWith(QStringLiteral(".torrent"), Qt::CaseInsensitive) && QFileInfo::exists(value)) {
+            torrentEngine_->addTorrentFile(value, QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
+            showFromTray();
+            return;
+        }
+    }
+}
+
 void MainWindow::addDownload(){
     const QString url=urlEdit_->text().trimmed();
     if(url.startsWith("magnet:?")){torrentEngine_->addMagnet(url,QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));urlEdit_->clear();statusLabel_->setText("Adding torrent…");return;}
