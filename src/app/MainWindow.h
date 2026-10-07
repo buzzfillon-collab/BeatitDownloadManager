@@ -1,5 +1,6 @@
 #pragma once
 #include <QHash>
+#include <QStringList>
 #include <QMainWindow>
 #include <QSystemTrayIcon>
 
