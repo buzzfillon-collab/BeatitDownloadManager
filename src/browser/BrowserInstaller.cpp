@@ -19,7 +19,8 @@ QString nativeHostPath() { return QDir(QCoreApplication::applicationDirPath()).f
 bool BrowserInstaller::writeManifest(const QString &path, const QString &hostPath, bool firefox, QString *error) {
     QDir().mkpath(QFileInfo(path).absolutePath());
     QJsonObject manifest{{QStringLiteral("name"),QString::fromLatin1(kHostName)},
-                            {QStringLiteral("description"),QStringLiteral("Beatit Download Manager browser integration")},\n                            {QStringLiteral("path"),hostPath},{QStringLiteral("type"),QStringLiteral("stdio")}};
+                            {QStringLiteral("description"),QStringLiteral("Beatit Download Manager browser integration")},
+                            {QStringLiteral("path"),hostPath},{QStringLiteral("type"),QStringLiteral("stdio")}};
     if (firefox) manifest.insert(QStringLiteral("allowed_extensions"), QJsonArray{QString::fromLatin1(kFirefoxExtensionId)});
     else manifest.insert(QStringLiteral("allowed_origins"), QJsonArray{QStringLiteral("chrome-extension://%1/").arg(QString::fromLatin1(kExtensionId))});
     QFile file(path);
