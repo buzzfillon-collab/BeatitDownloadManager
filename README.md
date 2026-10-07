@@ -26,7 +26,7 @@ Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTo
 - [x] Resume after application restart
 - [x] Cancellation and cleanup
 - [x] Filename/history UI
-- [ ] Checksums / post-download integrity verification
+- [x] Optional SHA-256 checksum persistence and post-download integrity verification
 
 ### Download manager/UI
 - [x] Queueing and persistence
@@ -36,8 +36,8 @@ Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTo
 - [x] Right-click download context menu
 - [x] Remove from history with optional source-file deletion
 - [x] Torrent recheck control
-- [ ] Full scheduler/calendar UI
-- [ ] Bandwidth limiting
+- [x] Full weekly scheduler/calendar UI with overnight windows
+- [x] Global HTTP + BitTorrent download bandwidth limiting
 
 ### BitTorrent
 - [x] libtorrent session
