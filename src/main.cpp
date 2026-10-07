@@ -17,6 +17,9 @@ int main(int argc, char *argv[]) {
 
     app.setStyle(QStringLiteral("Fusion"));
     MainWindow window;
-    window.show();
+    if (app.arguments().contains(QStringLiteral("--hidden")))
+        window.hide();
+    else
+        window.show();
     return app.exec();
 }
