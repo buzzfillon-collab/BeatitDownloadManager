@@ -720,7 +720,7 @@ void MainWindow::showSettings(){
     auto *calendar = new QCalendarWidget(schedulePage);
     calendar->setGridVisible(true);
     sl->addWidget(calendar);
-    auto *hint = new QLabel(QStringLiteral("Select a date to edit that day of the week. The schedule repeats weekly. Start = allowed time; end = stop time. Overnight windows are supported."), schedulePage);
+    auto *hint = new QLabel(QStringLiteral("Select a date to edit that day of the week. The schedule repeats weekly. Start = allowed time; end = stop time. Overnight windows are supported. If no days are enabled, downloads remain unrestricted."), schedulePage);
     hint->setWordWrap(true);
     sl->addWidget(hint);
     auto *row = new QHBoxLayout;
