@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QCryptographicHash>
 #include <QRegularExpression>
 #include <QUrl>
 #include <chrono>
@@ -134,6 +135,9 @@ SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QStrin
     curl_easy_setopt(curl,CURLOPT_LOW_SPEED_TIME,60L);
     curl_easy_setopt(curl,CURLOPT_USERAGENT,"BeatitDownloadManager/0.1 beta");
     curl_easy_setopt(curl,CURLOPT_NOSIGNAL,1L);
+    const qint64 limit = owner->bandwidthLimit_.load();
+    if (limit > 0) curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE,
+                                    static_cast<curl_off_t>(qMax<qint64>(1, limit / qMax(1, owner->segmentCount_.load()))));
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,segmentWrite);
     curl_easy_setopt(curl,CURLOPT_WRITEDATA,&ctx);
     curl_easy_setopt(curl,CURLOPT_XFERINFOFUNCTION,segmentProgress);
@@ -151,6 +155,17 @@ SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QStrin
 }
 
 void HttpDownloader::setSegments(int count) { segmentCount_=qBound(1,count,8); }
+void HttpDownloader::setBandwidthLimit(qint64 bytesPerSecond) { bandwidthLimit_=qMax<qint64>(0, bytesPerSecond); }
+void HttpDownloader::setExpectedSha256(const QString &sha256) { expectedSha256_=sha256.trimmed().toLower(); }
+bool HttpDownloader::verifySha256(const QString &path, const QString &expected, QString *actual) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) return false;
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&file)) return false;
+    const QString got = QString::fromLatin1(hash.result().toHex()).toLower();
+    if (actual) *actual = got;
+    return expected.isEmpty() || got == expected.trimmed().toLower();
+}
 
 void HttpDownloader::run(const QString &url,const QString &destination){
     emit probing();
@@ -319,6 +334,14 @@ void HttpDownloader::run(const QString &url,const QString &destination){
             QFile::remove(f);
         }
         out.close();
+        if (!expectedSha256_.isEmpty()) {
+            QString actual;
+            if (!verifySha256(partPath, expectedSha256_, &actual)) {
+                QFile::remove(partPath);
+                emit failed(QStringLiteral("SHA-256 checksum mismatch. Expected %1, got %2.").arg(expectedSha256_, actual));
+                return;
+            }
+        }
         if(!QFile::rename(partPath,finalPath)){emit failed("Unable to finalize the downloaded file.");return;}
         emit completed(finalPath);
         return;
@@ -333,6 +356,8 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,1L);curl_easy_setopt(curl,CURLOPT_MAXREDIRS,10L);
         curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,20L);curl_easy_setopt(curl,CURLOPT_LOW_SPEED_LIMIT,1L);curl_easy_setopt(curl,CURLOPT_LOW_SPEED_TIME,60L);
         curl_easy_setopt(curl,CURLOPT_USERAGENT,"BeatitDownloadManager/0.1 beta");curl_easy_setopt(curl,CURLOPT_NOSIGNAL,1L);
+        const qint64 limit = bandwidthLimit_.load();
+        if (limit > 0) curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE, static_cast<curl_off_t>(limit));
         curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,writeCallback);curl_easy_setopt(curl,CURLOPT_WRITEDATA,&ctx);
         curl_easy_setopt(curl,CURLOPT_XFERINFOFUNCTION,progressCallback);curl_easy_setopt(curl,CURLOPT_XFERINFODATA,&ctx);curl_easy_setopt(curl,CURLOPT_NOPROGRESS,0L);
         if(resume&&offset>0){const QByteArray range=QStringLiteral("%1-").arg(offset).toUtf8();curl_easy_setopt(curl,CURLOPT_RANGE,range.constData());}
@@ -353,6 +378,14 @@ void HttpDownloader::run(const QString &url,const QString &destination){
     if(result!=CURLE_OK){emit failed(humanCurlError(result));return;}
     const qint64 actual=QFileInfo(partPath).size();
     if(QFileInfo::exists(finalPath)&&!QFile::remove(finalPath)){emit failed("A file with the same name already exists.");return;}
+    if (!expectedSha256_.isEmpty()) {
+        QString actualHash;
+        if (!verifySha256(partPath, expectedSha256_, &actualHash)) {
+            QFile::remove(partPath);
+            emit failed(QStringLiteral("SHA-256 checksum mismatch. Expected %1, got %2.").arg(expectedSha256_, actualHash));
+            return;
+        }
+    }
     if(!QFile::rename(partPath,finalPath)){emit failed("Unable to finalize the downloaded file.");return;}
     emit progress(actual,total>0?total:actual,0);emit completed(finalPath);
 }
