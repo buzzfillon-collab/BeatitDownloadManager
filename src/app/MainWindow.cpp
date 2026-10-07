@@ -8,10 +8,12 @@
 #include <QDesktopServices>
 #include <QCheckBox>
 #include <QDateTime>
+#include <QDir>
 #include <QMessageBox>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -332,6 +334,8 @@ torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),
                 this, &MainWindow::handleBrowserCapture);
         statusLabel_->setText(QStringLiteral("Browser integration ready"));
     }
+
+    ytDlpManager_->updateIfDue();
 }
 void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QString &kind) {
     if (ytDlpProcess_) {
