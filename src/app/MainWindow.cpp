@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "../core/DownloadManager.h"
 #include "../core/TorrentEngine.h"
+#include "../browser/BrowserBridge.h"
 #include <QAbstractItemView>
 #include <QCloseEvent>
 #include <QDesktopServices>
@@ -8,6 +9,8 @@
 #include <QDateTime>
 #include <QMessageBox>
 #include <QFileDialog>
+#include <QFileInfo>
+#include <QProcess>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
@@ -63,7 +66,7 @@ pauseButton_(new QPushButton(QStringLiteral("Pause"),this)),cancelButton_(new QP
 removeButton_(new QPushButton(QStringLiteral("Remove"),this)),
 openButton_(new QPushButton(QStringLiteral("Open"),this)), recheckButton_(new QPushButton(QStringLiteral("Recheck"),this)),downloadsTable_(new QTableWidget(this)),
 statusLabel_(new QLabel(QStringLiteral("Ready"),this)),downloadManager_(new DownloadManager(this)),
-torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
+torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
     setWindowTitle("Beatit");setWindowIcon(beatitIcon());setMinimumSize(1050,650);resize(1180,720);
 
     QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
@@ -297,7 +300,65 @@ torrentEngine_(new TorrentEngine(this)),trayIcon_(new QSystemTrayIcon(this)),tra
         trayIcon_->showMessage(QStringLiteral("Beatit"),QStringLiteral("Torrent stalled: %1").arg(id),QSystemTrayIcon::Warning);
     });
     connect(torrentEngine_,&TorrentEngine::torrentError,this,[this](const QString&,const QString&e){trayIcon_->showMessage("Beatit",e,QSystemTrayIcon::Warning);});
+
+    if (browserBridge_->start()) {
+        connect(browserBridge_, &BrowserBridge::captureRequested,
+                this, &MainWindow::handleBrowserCapture);
+        statusLabel_->setText(QStringLiteral("Browser integration ready"));
+    }
 }
+void MainWindow::handleBrowserCapture(const QString &url, const QString &title, const QString &kind) {
+    Q_UNUSED(title);
+    const QUrl parsed(url);
+    const QString host = parsed.host().toLower();
+    const QString path = parsed.path().toLower();
+
+    const bool youtube = host == QStringLiteral("youtube.com") ||
+                         host.endsWith(QStringLiteral(".youtube.com")) ||
+                         host == QStringLiteral("youtu.be");
+    const bool hls = path.contains(QStringLiteral(".m3u8"));
+
+    if (youtube || hls || kind == QStringLiteral("youtube") || kind == QStringLiteral("hls")) {
+        QString ytDlp;
+        const QString local = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("tools/yt-dlp.exe"));
+        if (QFileInfo::exists(local)) ytDlp = local;
+        else ytDlp = QStandardPaths::findExecutable(QStringLiteral("yt-dlp"));
+
+        if (ytDlp.isEmpty()) {
+            trayIcon_->showMessage(QStringLiteral("Beatit"),
+                QStringLiteral("Stream captured, but yt-dlp.exe was not found. Put it in Beatit's tools folder."),
+                QSystemTrayIcon::Warning);
+            statusLabel_->setText(QStringLiteral("Stream captured — yt-dlp missing"));
+            return;
+        }
+
+        const QString output = QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation))
+            .filePath(QStringLiteral("%(title)s.%(ext)s"));
+        QStringList args{QStringLiteral("--no-playlist"), QStringLiteral("--newline"),
+                         QStringLiteral("-o"), output};
+        if (youtube || hls)
+            args << QStringLiteral("--merge-output-format") << QStringLiteral("mp4");
+        args << url;
+
+        if (QProcess::startDetached(ytDlp, args)) {
+            statusLabel_->setText(youtube ? QStringLiteral("YouTube download started")
+                                          : QStringLiteral("HLS stream download started"));
+            trayIcon_->showMessage(QStringLiteral("Beatit"),
+                youtube ? QStringLiteral("YouTube download started")
+                        : QStringLiteral("HLS stream download started"));
+        } else {
+            statusLabel_->setText(QStringLiteral("Could not start stream backend"));
+        }
+        return;
+    }
+
+    if (parsed.isValid() && (parsed.scheme() == QStringLiteral("http") ||
+                             parsed.scheme() == QStringLiteral("https"))) {
+        downloadManager_->addUrl(url, QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
+        statusLabel_->setText(QStringLiteral("Browser download queued"));
+    }
+}
+
 void MainWindow::setupTray(){trayIcon_->setIcon(windowIcon());trayIcon_->setToolTip("Beatit Download Manager");trayMenu_->addAction("Show Beatit",this,&MainWindow::showFromTray);trayMenu_->addSeparator();trayMenu_->addAction("Exit",this,&MainWindow::exitFromTray);trayIcon_->setContextMenu(trayMenu_);connect(trayIcon_,&QSystemTrayIcon::activated,this,[this](QSystemTrayIcon::ActivationReason r){if(r==QSystemTrayIcon::DoubleClick||r==QSystemTrayIcon::Trigger)showFromTray();});trayIcon_->show();}
 void MainWindow::closeEvent(QCloseEvent*e){if(!reallyQuit_&&trayIcon_->isVisible()){hide();trayIcon_->showMessage("Beatit","Beatit is still running in the system tray.",QSystemTrayIcon::Information,2500);e->ignore();return;}e->accept();}
 void MainWindow::showFromTray(){showNormal();raise();activateWindow();}
