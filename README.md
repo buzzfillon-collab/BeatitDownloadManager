@@ -4,7 +4,7 @@ Free and open-source Windows x64 download manager.
 
 ## Current status
 
-Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTorrent download paths are implemented, persistent state is in place, and the Windows portable build pipeline is operational. Browser integration is implemented end-to-end at the application/extension/native-host level; release packaging and smoke testing remain.
+Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTorrent download paths are implemented, persistent state is in place, browser integration is wired end-to-end, and the Windows portable + installer packaging pipeline is operational. The project remains beta until release smoke testing, signing, and final real-world validation are complete.
 
 ## Completed
 
@@ -66,16 +66,18 @@ Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTo
 - [x] Firefox extension identity
 - [x] yt-dlp nightly/stable channel selection
 - [x] Automatic yt-dlp update/retry path
-- [ ] Browser-extension store packaging / signed distribution
+- [x] Browser extension ZIP packaging
+- [ ] Browser-extension store submission / signed distribution
 
 ### Release
 - [x] Windows x64 automated build
 - [x] Portable ZIP
 - [x] Bundled browser extension
 - [x] Bundled yt-dlp/FFmpeg/Deno toolchain
-- [ ] Installer
-- [ ] Automated release smoke tests
-- [ ] Signed binaries
+- [x] Windows installer (Inno Setup, per-user)
+- [x] Automated release smoke tests
+- [x] SHA-256 artifact checksums
+- [ ] Authenticode-signed binaries
 - [ ] Stable public release
 
 ## Architecture
