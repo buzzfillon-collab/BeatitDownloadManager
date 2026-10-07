@@ -19,11 +19,12 @@ add_executable(BeatitDownloadManager WIN32
     src/core/HttpDownloader.cpp src/core/HttpDownloader.h
     src/core/TorrentEngine.cpp src/core/TorrentEngine.h
     src/core/YtDlpManager.cpp src/core/YtDlpManager.h
-    src/browser/BrowserBridge.cpp src/browser/BrowserBridge.h)
+    src/browser/BrowserBridge.cpp src/browser/BrowserBridge.h
+    src/browser/BrowserInstaller.cpp src/browser/BrowserInstaller.h)
 
 target_include_directories(BeatitDownloadManager PRIVATE src)
 
-add_executable(BeatitBrowserHost src/browser/NativeHost.cpp)
+add_executable(BeatitBrowserHost WIN32 src/browser/NativeHost.cpp)
 target_link_libraries(BeatitBrowserHost PRIVATE Qt6::Core Qt6::Network)
 target_compile_definitions(BeatitDownloadManager PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 target_link_libraries(BeatitDownloadManager PRIVATE Qt6::Widgets Qt6::Network CURL::libcurl LibtorrentRasterbar::torrent-rasterbar unofficial::sqlite3::sqlite3)
