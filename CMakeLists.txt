@@ -20,6 +20,9 @@ add_executable(BeatitDownloadManager WIN32
     src/core/TorrentEngine.cpp src/core/TorrentEngine.h)
 
 target_include_directories(BeatitDownloadManager PRIVATE src)
+
+add_executable(BeatitBrowserHost WIN32 src/browser/NativeHost.cpp)
+target_link_libraries(BeatitBrowserHost PRIVATE Qt6::Core)
 target_compile_definitions(BeatitDownloadManager PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 target_link_libraries(BeatitDownloadManager PRIVATE Qt6::Widgets CURL::libcurl LibtorrentRasterbar::torrent-rasterbar unofficial::sqlite3::sqlite3)
 
@@ -29,4 +32,4 @@ else()
     target_compile_options(BeatitDownloadManager PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-install(TARGETS BeatitDownloadManager RUNTIME DESTINATION .)
+install(TARGETS BeatitDownloadManager BeatitBrowserHost RUNTIME DESTINATION .)
