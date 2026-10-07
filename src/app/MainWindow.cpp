@@ -31,6 +31,7 @@
 #include <QFrame>
 #include <QToolButton>
 #include <QSizePolicy>
+#include <array>
 #include <QPushButton>
 #include <QStandardPaths>
 #include <QTableWidget>
