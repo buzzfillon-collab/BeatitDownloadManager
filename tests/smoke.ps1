@@ -21,6 +21,15 @@ foreach ($relative in $required) {
     if (-not (Test-Path $path -PathType Leaf)) { throw "Missing release file: $relative" }
 }
 
+$scheduler = Get-Content (Join-Path $Root "src/core/Scheduler.cpp") -Raw
+if ($scheduler -notmatch "overnight|dayOfWeek") {
+    throw "Scheduler implementation sanity check failed."
+}
+$checksum = Get-Content (Join-Path $Root "src/core/HttpDownloader.cpp") -Raw
+if ($checksum -notmatch "QCryptographicHash|verifySha256|MAX_RECV_SPEED_LARGE") {
+    throw "HTTP integrity/rate-limit implementation sanity check failed."
+}
+
 $manifest = Get-Content (Join-Path $root "browser/extension/manifest.json") -Raw | ConvertFrom-Json
 if ($manifest.manifest_version -ne 3) { throw "Browser extension is not MV3." }
 if (-not ($manifest.permissions -contains "nativeMessaging")) { throw "nativeMessaging permission missing." }
