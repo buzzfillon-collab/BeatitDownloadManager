@@ -1,5 +1,6 @@
 #pragma once
 #include <QObject>
+#include <QHash>
 #include <QJsonObject>
 class QLocalServer;
 class QLocalSocket;
@@ -16,4 +17,5 @@ private slots:
 private:
     void processMessage(QLocalSocket *socket, const QJsonObject &message);
     QLocalServer *server_{};
+    QHash<QString, qint64> recentCaptures_;
 };
