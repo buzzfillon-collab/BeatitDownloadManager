@@ -1,19 +1,34 @@
 # Beatit browser integration
 
-The browser integration uses WebExtension Manifest V3 plus native messaging.
+Beatit's browser integration is a WebExtension Manifest V3 extension plus a Windows native-messaging host.
 
-Capture targets:
-- ordinary HTTP/HTTPS URLs
-- direct TS media
+## Supported capture paths
+
+- Ordinary HTTP/HTTPS browser downloads
+- Direct media URLs
 - HLS M3U8 playlists
 - YouTube page URLs
+- TS media URLs
 
 DRM/encrypted streams are intentionally not bypassed.
 
-The native host is BeatitBrowserHost.exe. It receives browser native-messaging JSON framing and forwards the payload to the running Beatit process over a local Qt socket.
+## Installation
 
-On Windows, the installer will register the native host under the browser's NativeMessagingHosts registry key. Chrome requires the manifest allowed_origins entry to contain the exact installed extension ID; Firefox uses allowed_extensions.
+The portable/release build contains BeatitDownloadManager.exe, BeatitBrowserHost.exe, and browser/extension/.
 
-For development, load browser/extension as an unpacked extension and install a development native-messaging manifest with its generated extension ID.
+On Windows, Beatit automatically registers its native-messaging host for Chrome, Edge, Chromium, Brave, Vivaldi, and Firefox when the application starts. The registration is per-user and requires no administrator rights. The manifest is regenerated on startup so moving a portable Beatit folder does not leave the registry pointing at the old executable.
+
+The extension has a fixed development/distribution identity:
+
+- Chromium ID: mhmokbkgppciedcjabjlhkbhipnkfkpb
+- Firefox ID: beatit@example.org
+
+Load browser/extension/ as an unpacked extension during development/testing. Chrome/Edge/Brave/Vivaldi must be given the bundled extension directory; Firefox can load the same WebExtension.
+
+Double-clicking BeatitBrowserHost.exe is not a test: it is a native-messaging protocol endpoint and waits for the browser to send a framed message. The release build uses the Windows GUI subsystem so it does not open a visible console window when launched normally.
+
+## Runtime flow
+
+Browser extension -> native messaging -> BeatitBrowserHost.exe -> local Qt IPC -> running Beatit -> HTTP engine or yt-dlp.
 
 HLS and YouTube are routed through the external yt-dlp backend. Portable builds bundle yt-dlp.exe (nightly by default), ffmpeg.exe, ffprobe.exe, and Deno for YouTube JavaScript extraction. Beatit checks yt-dlp once per day and can switch between nightly and stable. If extraction fails, it updates yt-dlp and retries the download once. Direct media URLs use Beatit's HTTP engine.
