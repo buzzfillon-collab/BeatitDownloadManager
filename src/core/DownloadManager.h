@@ -24,7 +24,7 @@ public:
     void setBandwidthLimit(qint64 bytesPerSecond);
     qint64 bandwidthLimit() const noexcept { return bandwidthLimit_; }
     void setSchedulerAllowed(bool allowed);
-    void setExpectedSha256(const QString &id, const QString &sha256);
+    bool setExpectedSha256(const QString &id, const QString &sha256);
     bool verifyChecksum(const QString &id, QString *message = nullptr);
     int maxActive() const noexcept { return maxActive_; }
     int httpConnections() const noexcept { return httpConnections_; }
