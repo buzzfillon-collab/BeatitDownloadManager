@@ -15,6 +15,8 @@ public:
     void setBandwidthLimit(qint64 bytesPerSecond);
     void setExpectedSha256(const QString &sha256);
     bool isCancelRequested() const noexcept;
+    qint64 bandwidthLimit() const noexcept { return bandwidthLimit_.load(); }
+    int segmentCount() const noexcept { return segmentCount_.load(); }
 signals:
     void probing();
     void started(const QString &filename, qint64 totalBytes, bool resumable);
