@@ -315,6 +315,13 @@ QVector<int> TorrentEngine::filePriorities(const QString &id) const {
     return out;
 }
 
+QString TorrentEngine::torrentSavePath(const QString &id) const {
+    const auto it = torrents_.constFind(id);
+    if (it == torrents_.constEnd() || !it->handle.is_valid()) return {};
+    const auto status = it->handle.status();
+    return QString::fromStdString(status.save_path);
+}
+
 void TorrentEngine::persistStatus(const QString &id, const lt::torrent_status &status) {
     if (!database_) return;
     for (const auto &d : database_->loadHistory()) {
