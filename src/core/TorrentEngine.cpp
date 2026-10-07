@@ -303,7 +303,7 @@ QVector<QString> TorrentEngine::torrentFiles(const QString &id) const {
     const auto &layout = ti->layout();
     lt::filenames names(layout, it->handle.get_renamed_files());
     for (int i = 0; i < names.num_files(); ++i)
-        out.push_back(QString::fromStdString(names.file_path(i)));
+        out.push_back(QString::fromStdString(names.file_path(lt::file_index_t(i))));
     return out;
 }
 
@@ -311,7 +311,7 @@ QVector<int> TorrentEngine::filePriorities(const QString &id) const {
     QVector<int> out;
     const auto it = torrents_.constFind(id);
     if (it == torrents_.constEnd() || !it->handle.is_valid()) return out;
-    for (auto p : it->handle.get_file_priorities()) out.push_back(static_cast<int>(p));
+    for (auto p : it->handle.get_file_priorities()) out.push_back(static_cast<int>(static_cast<lt::download_priority_t::underlying_type>(p)));
     return out;
 }
 
