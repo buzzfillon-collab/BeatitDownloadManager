@@ -1,5 +1,7 @@
 const HOST = "com.beatit.download_manager";
-function send(payload) { chrome.runtime.sendNativeMessage(HOST, payload).catch(() => {}); }
+function send(payload) {
+  return chrome.runtime.sendNativeMessage(HOST, payload).catch(() => null);
+}
 function classify(url) {
   const u = new URL(url);
   const lower = u.pathname.toLowerCase();
@@ -22,3 +24,15 @@ chrome.webRequest.onBeforeRequest.addListener(
   },
   {urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other"]}
 );
+
+chrome.downloads.onCreated.addListener(async (item) => {
+  if (!item?.url || !/^https?:/i.test(item.url) || item.state !== "in_progress") return;
+  const response = await send({
+    url: item.url,
+    title: item.filename ? item.filename.split(/[\\/]/).pop() : "",
+    kind: "download"
+  });
+  if (response?.ok === true) {
+    try { await chrome.downloads.cancel(item.id); } catch (_) {}
+  }
+});
