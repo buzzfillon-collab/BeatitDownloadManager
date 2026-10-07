@@ -17,7 +17,7 @@ chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (details.tabId < 0 || !/^https?:/i.test(details.url)) return;
     const kind = classify(details.url);
-    if (kind === "hls" || kind === "ts")
+    if (kind === "hls")
       send({url: details.url, title: "", kind});
   },
   {urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other"]}
