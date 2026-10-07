@@ -13,6 +13,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -369,6 +370,12 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
     ytDlpProcess_->setProgram(executable);
     ytDlpProcess_->setArguments(ytDlpPendingArgs_);
     ytDlpProcess_->setProcessChannelMode(QProcess::MergedChannels);
+
+    const QString toolsDir = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("tools"));
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    const QString pathSeparator = QStringLiteral(";");
+    env.insert(QStringLiteral("PATH"), toolsDir + pathSeparator + env.value(QStringLiteral("PATH")));
+    ytDlpProcess_->setProcessEnvironment(env);
 
     connect(ytDlpProcess_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
             this, [this, youtube](int exitCode, QProcess::ExitStatus exitStatus) {
