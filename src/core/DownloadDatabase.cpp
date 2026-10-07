@@ -80,7 +80,7 @@ bool DownloadDatabase::save(const PersistedDownload &d) {
         "type=excluded.type,source=excluded.source,destination=excluded.destination,"
         "filename=excluded.filename,status=excluded.status,total_bytes=excluded.total_bytes,"
         "downloaded_bytes=excluded.downloaded_bytes,speed=excluded.speed,error=excluded.error,"
-        "updated_at=unixepoch();";
+        "sha256=excluded.sha256,verification=excluded.verification,updated_at=unixepoch();";
     sqlite3_stmt *s = nullptr;
     if (sqlite3_prepare_v2(asDb(db_), sql, -1, &s, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(s,1,d.id.toUtf8().constData(),-1,SQLITE_TRANSIENT);
@@ -103,7 +103,7 @@ bool DownloadDatabase::save(const PersistedDownload &d) {
 QVector<PersistedDownload> DownloadDatabase::loadActive() const {
     if (!db_) return {};
     return readRows(asDb(db_),
-        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at "
+        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at,sha256,verification "
         "FROM downloads WHERE status IN ('Queued','Paused','Downloading','Failed') "
         "ORDER BY updated_at ASC;");
 }
@@ -111,7 +111,7 @@ QVector<PersistedDownload> DownloadDatabase::loadActive() const {
 QVector<PersistedDownload> DownloadDatabase::loadHistory() const {
     if (!db_) return {};
     return readRows(asDb(db_),
-        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at "
+        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at,sha256,verification "
         "FROM downloads ORDER BY updated_at DESC;");
 }
 
