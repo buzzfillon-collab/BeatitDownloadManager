@@ -4,7 +4,7 @@
 #include <QSystemTrayIcon>
 
 class QLabel; class QLineEdit; class QPushButton; class QTableWidget; class QCloseEvent; class QCheckBox;
-class QMenu; class DownloadManager; class TorrentEngine; class BrowserBridge;
+class QMenu; class DownloadManager; class TorrentEngine; class BrowserBridge; class YtDlpManager; class QProcess;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -23,6 +23,7 @@ private slots:
     void showFromTray();
     void exitFromTray();
     void handleBrowserCapture(const QString &url, const QString &title, const QString &kind);
+    void startYtDlpDownload(const QString &url, bool youtube, const QString &kind);
 private:
     int selectedRow() const;
     QString selectedId() const;
@@ -34,5 +35,11 @@ private:
     QLabel *statusLabel_; DownloadManager *downloadManager_; TorrentEngine *torrentEngine_;
     QSystemTrayIcon *trayIcon_; QMenu *trayMenu_;
     BrowserBridge *browserBridge_;
+    YtDlpManager *ytDlpManager_;
+    QProcess *ytDlpProcess_ = nullptr;
+    QStringList ytDlpPendingArgs_;
+    QString ytDlpPendingUrl_;
+    QString ytDlpPendingKind_;
+    bool ytDlpRetryAfterUpdate_ = false;
     QHash<QString, QString> paths_; QHash<QString, int> rows_; bool reallyQuit_ = false;
 };
