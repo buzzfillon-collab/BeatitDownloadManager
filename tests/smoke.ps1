@@ -1,6 +1,10 @@
-$ErrorActionPreference = "Stop"
+param(
+    [string]$Root = (Resolve-Path (Join-Path $PSScriptRoot ".."))
+)
 
-$root = Resolve-Path (Join-Path $PSScriptRoot "..")
+$ErrorActionPreference = "Stop"
+$root = (Resolve-Path $Root).Path
+
 $required = @(
   "BeatitDownloadManager.exe",
   "BeatitBrowserHost.exe",
