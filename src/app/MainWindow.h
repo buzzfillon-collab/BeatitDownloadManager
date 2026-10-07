@@ -16,6 +16,7 @@ protected:
 private slots:
     void addDownload();
     void pauseSelected();
+    void resumeSelected();
     void cancelSelected();
     void removeSelected();
     void openSelected();
@@ -25,13 +26,14 @@ private slots:
     void exitFromTray();
     void handleBrowserCapture(const QString &url, const QString &title, const QString &kind);
     void startYtDlpDownload(const QString &url, bool youtube, const QString &kind);
+    void filterDownloads(const QString &filter);
 private:
     int selectedRow() const;
     QString selectedId() const;
     void setStatus(const QString &id, const QString &status);
     void setupTray();
     int rowForId(const QString &id) const;
-    QLineEdit *urlEdit_; QPushButton *addButton_; QPushButton *pauseButton_;
+    QLineEdit *urlEdit_; QPushButton *addButton_; QPushButton *pauseButton_; QPushButton *resumeButton_;
     QPushButton *cancelButton_; QPushButton *removeButton_; QPushButton *openButton_; QPushButton *recheckButton_; QTableWidget *downloadsTable_;
     QLabel *statusLabel_; DownloadManager *downloadManager_; TorrentEngine *torrentEngine_;
     QSystemTrayIcon *trayIcon_; QMenu *trayMenu_;
