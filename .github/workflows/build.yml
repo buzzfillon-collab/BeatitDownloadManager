@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install Qt
-        uses: jurplep/install-qt-action@v4
+        uses: jurplel/install-qt-action@v4
         with:
           version: ${{ env.QT_VERSION }}
           arch: win64_msvc2022_64
