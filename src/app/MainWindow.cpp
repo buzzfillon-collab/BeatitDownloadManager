@@ -564,7 +564,7 @@ void MainWindow::showSettings(){
     const QString id=selectedId();
     if(id.startsWith(QStringLiteral("torrent-"))){
         const auto files=torrentEngine_->torrentFiles(id);
-        const auto priorities=torrentEngine_->filePriorities(id);
+        const auto existingPriorities=torrentEngine_->filePriorities(id);
         if(!files.isEmpty()){
             QDialog dialog(this);
             dialog.setWindowTitle(QStringLiteral("Selective torrent download"));
@@ -575,7 +575,7 @@ void MainWindow::showSettings(){
             auto *list=new QListWidget(&dialog);
             for(int i=0;i<files.size();++i){
                 auto *item=new QListWidgetItem(files[i],list);
-                item->setCheckState(i < priorities.size() && priorities[i] == 0 ? Qt::Unchecked : Qt::Checked);
+                item->setCheckState(i < existingPriorities.size() && existingPriorities[i] == 0 ? Qt::Unchecked : Qt::Checked);
             }
             layout->addWidget(list,1);
             auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
@@ -583,11 +583,11 @@ void MainWindow::showSettings(){
             connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);
             connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
             if(dialog.exec()==QDialog::Accepted){
-                QVector<int> priorities;
-                priorities.reserve(list->count());
+                QVector<int> selectedPriorities;
+                selectedPriorities.reserve(list->count());
                 for(int i=0;i<list->count();++i)
-                    priorities.push_back(list->item(i)->checkState()==Qt::Checked?4:0);
-                torrentEngine_->setFilePriorities(id,priorities);
+                    selectedPriorities.push_back(list->item(i)->checkState()==Qt::Checked?4:0);
+                torrentEngine_->setFilePriorities(id,selectedPriorities);
                 statusLabel_->setText(QStringLiteral("Torrent file selection updated"));
             }
         }
