@@ -66,8 +66,11 @@ int main(int argc, char *argv[]) {
                 QStringList arguments;
                 for (const auto &value : array)
                     if (value.isString()) arguments.append(value.toString());
-                if (arguments.isEmpty())
-                    window.show(); window.raise(); window.activateWindow();
+                if (arguments.isEmpty()) {
+                    window.show();
+                    window.raise();
+                    window.activateWindow();
+                }
                 else
                     window.handleExternalCommand(arguments);
                 socket->disconnectFromServer();
