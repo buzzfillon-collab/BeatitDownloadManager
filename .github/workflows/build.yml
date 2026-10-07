@@ -51,6 +51,19 @@ jobs:
         shell: pwsh
         run: windeployqt --release --no-translations build/BeatitDownloadManager.exe
 
+      - name: Bundle yt-dlp nightly and FFmpeg
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/tools | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe" -OutFile build/tools/yt-dlp.exe
+          Invoke-WebRequest -Uri "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip" -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP/ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP/ffmpeg" -Force
+          $ffmpeg = Get-ChildItem "$env:RUNNER_TEMP/ffmpeg" -Filter ffmpeg.exe -Recurse | Select-Object -First 1
+          $ffprobe = Get-ChildItem "$env:RUNNER_TEMP/ffmpeg" -Filter ffprobe.exe -Recurse | Select-Object -First 1
+          if (-not $ffmpeg -or -not $ffprobe) { throw "FFmpeg binaries were not found in the downloaded archive." }
+          Copy-Item $ffmpeg.FullName build/tools/ffmpeg.exe -Force
+          Copy-Item $ffprobe.FullName build/tools/ffprobe.exe -Force
+
       - name: Stage browser integration
         shell: pwsh
         run: |
