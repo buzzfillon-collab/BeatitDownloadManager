@@ -11,6 +11,7 @@ class MainWindow final : public QMainWindow {
     Q_OBJECT
 public:
     explicit MainWindow(QWidget *parent = nullptr);
+    void handleExternalCommand(const QStringList &arguments);
 protected:
     void closeEvent(QCloseEvent *event) override;
 private slots:
