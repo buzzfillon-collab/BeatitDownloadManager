@@ -8,6 +8,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QUrl>
+#include <QRegularExpression>
 #include <QCryptographicHash>
 
 DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
