@@ -1,0 +1,7 @@
+{
+  "name": "com.beatit.download_manager",
+  "description": "Beatit Download Manager browser integration",
+  "path": "BeatitBrowserHost.exe",
+  "type": "stdio",
+  "allowed_extensions": ["beatit@example.org"]
+}
