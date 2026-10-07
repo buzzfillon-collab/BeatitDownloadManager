@@ -51,6 +51,14 @@ jobs:
         shell: pwsh
         run: windeployqt --release --no-translations build/BeatitDownloadManager.exe
 
+      - name: Stage browser integration
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force build/browser/extension | Out-Null
+          New-Item -ItemType Directory -Force build/browser/native | Out-Null
+          Copy-Item browser/extension/* build/browser/extension/ -Force
+          Copy-Item browser/native/*.example.json build/browser/native/ -Force
+
       - name: Zip portable build
         shell: pwsh
         run: Compress-Archive -Path build/* -DestinationPath BeatitDownloadManager-win64.zip -Force
