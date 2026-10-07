@@ -21,6 +21,11 @@ public:
     void resume(const QString &id);
     void setMaxActive(int count);
     void setHttpConnections(int count);
+    void setBandwidthLimit(qint64 bytesPerSecond);
+    qint64 bandwidthLimit() const noexcept { return bandwidthLimit_; }
+    void setSchedulerAllowed(bool allowed);
+    void setExpectedSha256(const QString &id, const QString &sha256);
+    bool verifyChecksum(const QString &id, QString *message = nullptr);
     int maxActive() const noexcept { return maxActive_; }
     int httpConnections() const noexcept { return httpConnections_; }
 
@@ -47,10 +52,14 @@ private:
     void persist(const QString &id, const QString &status, qint64 downloaded = 0,
                  qint64 total = 0, qint64 speed = 0, const QString &error = {});
     void startNextQueued();
+    void updateActiveBandwidthLimits();
 
     int nextId_ = 1;
     int maxActive_ = 3;
     int httpConnections_ = 8;
+    qint64 bandwidthLimit_ = 0;
+    bool schedulerAllowed_ = true;
+    QHash<QString, bool> schedulerPaused_;
     QHash<QString, ActiveTask> active_;
     QHash<QString, PersistedDownload> queued_;
     QHash<QString, bool> pendingRemoval_;
