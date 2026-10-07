@@ -199,6 +199,14 @@ void HttpDownloader::run(const QString &url,const QString &destination){
     qint64 total=-1; bool ranges=false;
     probe(total,ranges);
     if(existing>0&&total>=0&&existing>=total){
+        if (!expectedSha256_.isEmpty()) {
+            QString actual;
+            if (!verifySha256(partPath, expectedSha256_, &actual)) {
+                QFile::remove(partPath);
+                emit failed(QStringLiteral("SHA-256 checksum mismatch. Expected %1, got %2.").arg(expectedSha256_, actual));
+                return;
+            }
+        }
         QFile::remove(finalPath);
         if(QFile::rename(partPath,finalPath)){emit started(QFileInfo(finalPath).fileName(),total,true);emit progress(total,total,0);emit completed(finalPath);return;}
         existing=0;
