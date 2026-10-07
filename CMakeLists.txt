@@ -26,7 +26,7 @@ target_include_directories(BeatitDownloadManager PRIVATE src)
 add_executable(BeatitBrowserHost src/browser/NativeHost.cpp)
 target_link_libraries(BeatitBrowserHost PRIVATE Qt6::Core Qt6::Network)
 target_compile_definitions(BeatitDownloadManager PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
-target_link_libraries(BeatitDownloadManager PRIVATE Qt6::Widgets CURL::libcurl LibtorrentRasterbar::torrent-rasterbar unofficial::sqlite3::sqlite3)
+target_link_libraries(BeatitDownloadManager PRIVATE Qt6::Widgets Qt6::Network CURL::libcurl LibtorrentRasterbar::torrent-rasterbar unofficial::sqlite3::sqlite3)
 
 if(MSVC)
     target_compile_options(BeatitDownloadManager PRIVATE /W4 /permissive-)
