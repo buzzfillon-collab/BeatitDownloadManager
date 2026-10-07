@@ -18,9 +18,9 @@ QString nativeHostPath() { return QDir(QCoreApplication::applicationDirPath()).f
 }
 bool BrowserInstaller::writeManifest(const QString &path, const QString &hostPath, bool firefox, QString *error) {
     QDir().mkpath(QFileInfo(path).absolutePath());
-    QJsonObject manifest{{"name",QString::fromLatin1(kHostName)},{"description","Beatit Download Manager browser integration"},{"path",hostPath},{"type","stdio"}};
-    if (firefox) manifest.insert("allowed_extensions", QJsonArray{QString::fromLatin1(kFirefoxExtensionId)});
-    else manifest.insert("allowed_origins", QJsonArray{QStringLiteral("chrome-extension://%1/").arg(QString::fromLatin1(kExtensionId))});
+    QJsonObject manifest{{QStringLiteral("name"),QString::fromLatin1(kHostName)},\n                            {QStringLiteral("description"),QStringLiteral("Beatit Download Manager browser integration")},\n                            {QStringLiteral("path"),hostPath},{QStringLiteral("type"),QStringLiteral("stdio")}};
+    if (firefox) manifest.insert(QStringLiteral("allowed_extensions"), QJsonArray{QString::fromLatin1(kFirefoxExtensionId)});
+    else manifest.insert(QStringLiteral("allowed_origins"), QJsonArray{QStringLiteral("chrome-extension://%1/").arg(QString::fromLatin1(kExtensionId))});
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) { if(error)*error=QStringLiteral("Cannot write native host manifest: %1").arg(file.errorString()); return false; }
     if (file.write(QJsonDocument(manifest).toJson(QJsonDocument::Indented)) < 0) { if(error)*error=QStringLiteral("Cannot write native host manifest"); return false; }
@@ -28,7 +28,7 @@ bool BrowserInstaller::writeManifest(const QString &path, const QString &hostPat
 }
 bool BrowserInstaller::registerHost(const QString &key, const QString &manifestPath) {
     QSettings registry(key, QSettings::NativeFormat);
-    registry.setValue(".", manifestPath); registry.sync();
+    registry.setValue(QStringLiteral("."), manifestPath); registry.sync();
     return registry.status() == QSettings::NoError;
 }
 bool BrowserInstaller::install(QString *error) {
