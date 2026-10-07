@@ -4,6 +4,7 @@
 #include "../browser/BrowserBridge.h"
 #include "../browser/BrowserInstaller.h"
 #include "../core/YtDlpManager.h"
+#include "../core/Scheduler.h"
 #include <QAbstractItemView>
 #include <QCloseEvent>
 #include <QDesktopServices>
@@ -39,6 +40,9 @@
 #include <QListWidget>
 #include <QSpinBox>
 #include <QDoubleSpinBox>
+#include <QTimeEdit>
+#include <QTabWidget>
+#include <QCalendarWidget>
 
 namespace {
 QString formatBytes(qint64 b){if(b<1024)return QStringLiteral("%1 B").arg(b);double v=b;const QStringList u{"KB","MB","GB","TB"};int i=-1;do{v/=1024.0;++i;}while(v>=1024.0&&i+1<u.size());return QStringLiteral("%1 %2").arg(v,0,'f',v>=100?0:1).arg(u[i]);}
@@ -70,12 +74,21 @@ urlEdit_(new QLineEdit(this)),addButton_(new QPushButton(QStringLiteral("＋ Add
 pauseButton_(new QPushButton(QStringLiteral("Pause"),this)),resumeButton_(new QPushButton(QStringLiteral("Resume"),this)),cancelButton_(new QPushButton(QStringLiteral("Cancel"),this)),
 removeButton_(new QPushButton(QStringLiteral("Remove"),this)),
 openButton_(new QPushButton(QStringLiteral("Open"),this)), recheckButton_(new QPushButton(QStringLiteral("Recheck"),this)),downloadsTable_(new QTableWidget(this)),
-statusLabel_(new QLabel(QStringLiteral("Ready"),this)),downloadManager_(new DownloadManager(this)),
-torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
+statusLabel_(new QLabel(QStringLiteral("Ready"),this)),downloadManager_(new DownloadManager(this)),torrentEngine_(new TorrentEngine(this)),scheduler_(new Scheduler(this)),
+browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
     setWindowTitle("Beatit");setWindowIcon(beatitIcon());setMinimumSize(1050,650);resize(1180,720);
 
     QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
     downloadManager_->setHttpConnections(settings.value(QStringLiteral("http/connections"), 8).toInt());
+    const qint64 bandwidth = settings.value(QStringLiteral("bandwidth/limit"), 0).toLongLong();
+    downloadManager_->setBandwidthLimit(bandwidth);
+    torrentEngine_->setBandwidthLimit(bandwidth);
+    connect(scheduler_, &Scheduler::scheduleStateChanged, this, [this](bool allowed) {
+        downloadManager_->setSchedulerAllowed(allowed);
+        torrentEngine_->setSchedulerAllowed(allowed);
+        statusLabel_->setText(allowed ? QStringLiteral("Scheduler window open") : QStringLiteral("Scheduler window closed"));
+    });
+    scheduler_->setEnabled(scheduler_->enabled());
 
     auto *root=new QWidget(this);
     auto *mainLayout=new QVBoxLayout(root);
@@ -234,6 +247,9 @@ torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),
             menu.addAction(QStringLiteral("Pause"), this, &MainWindow::pauseSelected);
         if (torrent)
             menu.addAction(QStringLiteral("Recheck files"), this, &MainWindow::recheckSelected);
+        if (!torrent) {
+            menu.addAction(QStringLiteral("Set / verify SHA-256…"), this, &MainWindow::configureChecksumSelected);
+        }
         if (!torrent && !completed)
             menu.addAction(QStringLiteral("Cancel"), this, &MainWindow::cancelSelected);
         menu.addAction(QStringLiteral("Remove from history…"), this, &MainWindow::removeSelected);
@@ -640,86 +656,105 @@ void MainWindow::recheckSelected(){
 }
 void MainWindow::showSettings(){
     QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
-    bool ok=false;
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Beatit Settings"));
+    dialog.resize(720, 620);
+    auto *root = new QVBoxLayout(&dialog);
+    auto *tabs = new QTabWidget(&dialog);
+    root->addWidget(tabs, 1);
 
-    const QStringList ytChannels{QStringLiteral("Nightly (recommended)"),
-                                  QStringLiteral("Stable")};
-    const int ytCurrent = ytDlpManager_->channel() == YtDlpManager::Channel::Stable ? 1 : 0;
-    const QString ytChoice = QInputDialog::getItem(
-        this, QStringLiteral("yt-dlp release channel"),
-        QStringLiteral("Channel:"), ytChannels, ytCurrent, false, &ok);
-    if (!ok) return;
-    const auto newChannel = ytChannels.indexOf(ytChoice) == 1
-        ? YtDlpManager::Channel::Stable : YtDlpManager::Channel::Nightly;
+    auto *general = new QWidget(&dialog);
+    auto *g = new QFormLayout(general);
+    auto *yt = new QComboBox(general);
+    yt->addItems({QStringLiteral("Nightly (recommended)"), QStringLiteral("Stable")});
+    yt->setCurrentIndex(ytDlpManager_->channel() == YtDlpManager::Channel::Stable ? 1 : 0);
+    g->addRow(QStringLiteral("yt-dlp channel"), yt);
+    auto *connections = new QSpinBox(general);
+    connections->setRange(1, 8);
+    connections->setValue(downloadManager_->httpConnections());
+    g->addRow(QStringLiteral("HTTP connections / download"), connections);
+    auto *bandwidth = new QSpinBox(general);
+    bandwidth->setRange(0, 1024 * 1024);
+    bandwidth->setSuffix(QStringLiteral(" KiB/s (0 = unlimited)"));
+    bandwidth->setValue(static_cast<int>(settings.value(QStringLiteral("bandwidth/limit"), 0).toLongLong() / 1024));
+    g->addRow(QStringLiteral("Global download limit"), bandwidth);
+    auto *note = new QLabel(QStringLiteral("The bandwidth limit applies to HTTP and BitTorrent downloads."), general);
+    note->setWordWrap(true);
+    g->addRow(QString(), note);
+    tabs->addTab(general, QStringLiteral("General"));
+
+    auto *schedulePage = new QWidget(&dialog);
+    auto *sl = new QVBoxLayout(schedulePage);
+    auto *enabled = new QCheckBox(QStringLiteral("Enable weekly download scheduler"), schedulePage);
+    enabled->setChecked(scheduler_->enabled());
+    sl->addWidget(enabled);
+    auto *calendar = new QCalendarWidget(schedulePage);
+    calendar->setGridVisible(true);
+    sl->addWidget(calendar);
+    auto *hint = new QLabel(QStringLiteral("Select a date to edit that day of the week. The schedule repeats weekly. Start = allowed time; end = stop time. Overnight windows are supported."), schedulePage);
+    hint->setWordWrap(true);
+    sl->addWidget(hint);
+    auto *row = new QHBoxLayout;
+    auto *dayLabel = new QLabel(schedulePage);
+    auto *dayEnabled = new QCheckBox(QStringLiteral("Allowed"), schedulePage);
+    auto *start = new QTimeEdit(schedulePage); start->setDisplayFormat(QStringLiteral("HH:mm"));
+    auto *endTime = new QTimeEdit(schedulePage); endTime->setDisplayFormat(QStringLiteral("HH:mm"));
+    row->addWidget(dayLabel); row->addWidget(dayEnabled); row->addWidget(new QLabel(QStringLiteral("Start"), schedulePage)); row->addWidget(start);
+    row->addWidget(new QLabel(QStringLiteral("End"), schedulePage)); row->addWidget(endTime); row->addStretch();
+    sl->addLayout(row);
+    auto loadDay = [this, calendar, dayLabel, dayEnabled, start, endTime]() {
+        const int day = calendar->selectedDate().dayOfWeek();
+        static const QStringList names{QStringLiteral("Monday"),QStringLiteral("Tuesday"),QStringLiteral("Wednesday"),
+                                       QStringLiteral("Thursday"),QStringLiteral("Friday"),QStringLiteral("Saturday"),QStringLiteral("Sunday")};
+        dayLabel->setText(names[day - 1]);
+        dayEnabled->setChecked(scheduler_->dayEnabled(day));
+        start->setTime(QTime::fromMSecsSinceStartOfDay(scheduler_->startMinute(day) * 60000));
+        endTime->setTime(QTime::fromMSecsSinceStartOfDay(scheduler_->endMinute(day) * 60000));
+    };
+    auto saveDay = [this, calendar, dayEnabled, start, endTime]() {
+        const int day = calendar->selectedDate().dayOfWeek();
+        scheduler_->setDay(day, dayEnabled->isChecked(), start->time().hour() * 60 + start->time().minute(),
+                           endTime->time().hour() * 60 + endTime->time().minute());
+    };
+    connect(calendar, &QCalendarWidget::selectionChanged, &dialog, loadDay);
+    connect(dayEnabled, &QCheckBox::toggled, &dialog, [saveDay](bool){ saveDay(); });
+    connect(start, &QTimeEdit::timeChanged, &dialog, [saveDay](const QTime&){ saveDay(); });
+    connect(endTime, &QTimeEdit::timeChanged, &dialog, [saveDay](const QTime&){ saveDay(); });
+    loadDay();
+    tabs->addTab(schedulePage, QStringLiteral("Scheduler / Calendar"));
+
+    auto *torrentPage = new QWidget(&dialog);
+    auto *tl = new QFormLayout(torrentPage);
+    const QStringList modes{QStringLiteral("Stop after ratio"),QStringLiteral("Stop after time"),QStringLiteral("Seed forever"),QStringLiteral("Stop immediately")};
+    auto *mode = new QComboBox(torrentPage); mode->addItems(modes); mode->setCurrentIndex(torrentEngine_->seedingPolicyMode());
+    auto *ratio = new QDoubleSpinBox(torrentPage); ratio->setRange(0.1,100.0); ratio->setDecimals(1); ratio->setValue(torrentEngine_->seedingRatio());
+    auto *minutes = new QSpinBox(torrentPage); minutes->setRange(1,100000); minutes->setValue(torrentEngine_->seedingMinutes());
+    tl->addRow(QStringLiteral("Seeding policy"), mode);
+    tl->addRow(QStringLiteral("Upload/download ratio"), ratio);
+    tl->addRow(QStringLiteral("Seeding minutes"), minutes);
+    tabs->addTab(torrentPage, QStringLiteral("BitTorrent"));
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    root->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    const auto newChannel = yt->currentIndex() == 1 ? YtDlpManager::Channel::Stable : YtDlpManager::Channel::Nightly;
     const bool channelChanged = newChannel != ytDlpManager_->channel();
     ytDlpManager_->setChannel(newChannel);
+    if (channelChanged) ytDlpManager_->updateNow();
 
-    if (channelChanged ||
-        QMessageBox::question(this, QStringLiteral("yt-dlp updates"),
-            QStringLiteral("Check yt-dlp for updates now?")) == QMessageBox::Yes) {
-        ytDlpManager_->updateNow();
-        statusLabel_->setText(QStringLiteral("Checking yt-dlp updates…"));
-    }
-    const int current=qBound(1,downloadManager_->httpConnections(),8);
-    const int value=QInputDialog::getInt(this,QStringLiteral("Beatit Settings"),
-        QStringLiteral("HTTP connections per download:"),current,1,8,1,&ok);
-    if(!ok) return;
-    downloadManager_->setHttpConnections(value);
-    settings.setValue(QStringLiteral("http/connections"),value);
+    downloadManager_->setHttpConnections(connections->value());
+    settings.setValue(QStringLiteral("http/connections"), connections->value());
+    const qint64 limit = static_cast<qint64>(bandwidth->value()) * 1024;
+    settings.setValue(QStringLiteral("bandwidth/limit"), limit);
+    downloadManager_->setBandwidthLimit(limit);
+    torrentEngine_->setBandwidthLimit(limit);
+    scheduler_->setEnabled(enabled->isChecked());
+    torrentEngine_->setSeedingPolicy(mode->currentIndex(), ratio->value(), minutes->value());
 
-    const QStringList modes{QStringLiteral("Stop after 1.0× upload/download ratio"),
-                             QStringLiteral("Stop after 30 minutes seeding"),
-                             QStringLiteral("Seed forever"),
-                             QStringLiteral("Stop immediately after completion")};
-    const int currentMode=torrentEngine_->seedingPolicyMode();
-    const QString mode=QInputDialog::getItem(this,QStringLiteral("Torrent seeding policy"),
-        QStringLiteral("After a torrent finishes:"),modes,currentMode,false,&ok);
-    if(ok){
-        const int selected=modes.indexOf(mode);
-        double ratio=torrentEngine_->seedingRatio();
-        int minutes=torrentEngine_->seedingMinutes();
-        if(selected==0){
-            ratio=QInputDialog::getDouble(this,QStringLiteral("Seeding ratio"),
-                QStringLiteral("Upload/download ratio:"),ratio,0.1,100.0,1,&ok);
-            if(!ok) return;
-        } else if(selected==1){
-            minutes=QInputDialog::getInt(this,QStringLiteral("Seeding time"),
-                QStringLiteral("Minutes to seed:"),minutes,1,100000,1,&ok);
-            if(!ok) return;
-        }
-        torrentEngine_->setSeedingPolicy(selected,ratio,minutes);
-    }
-
-    const QString id=selectedId();
-    if(id.startsWith(QStringLiteral("torrent-"))){
-        const auto files=torrentEngine_->torrentFiles(id);
-        const auto existingPriorities=torrentEngine_->filePriorities(id);
-        if(!files.isEmpty()){
-            QDialog dialog(this);
-            dialog.setWindowTitle(QStringLiteral("Selective torrent download"));
-            dialog.resize(620,420);
-            auto *layout=new QVBoxLayout(&dialog);
-            auto *hint=new QLabel(QStringLiteral("Uncheck files you do not want to download."),&dialog);
-            layout->addWidget(hint);
-            auto *list=new QListWidget(&dialog);
-            for(int i=0;i<files.size();++i){
-                auto *item=new QListWidgetItem(files[i],list);
-                item->setCheckState(i < existingPriorities.size() && existingPriorities[i] == 0 ? Qt::Unchecked : Qt::Checked);
-            }
-            layout->addWidget(list,1);
-            auto *buttons=new QDialogButtonBox(QDialogButtonBox::Ok|QDialogButtonBox::Cancel,&dialog);
-            layout->addWidget(buttons);
-            connect(buttons,&QDialogButtonBox::accepted,&dialog,&QDialog::accept);
-            connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
-            if(dialog.exec()==QDialog::Accepted){
-                QVector<int> selectedPriorities;
-                selectedPriorities.reserve(list->count());
-                for(int i=0;i<list->count();++i)
-                    selectedPriorities.push_back(list->item(i)->checkState()==Qt::Checked?4:0);
-                torrentEngine_->setFilePriorities(id,selectedPriorities);
-                statusLabel_->setText(QStringLiteral("Torrent file selection updated"));
-            }
-        }
-    }
     statusLabel_->setText(QStringLiteral("Settings saved"));
 }
+
