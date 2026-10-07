@@ -106,28 +106,53 @@ bool DownloadManager::setExpectedSha256(const QString &id, const QString &sha256
     if (normalized.size() != 64 || normalized.contains(QRegularExpression(QStringLiteral("[^0-9a-f]"))))
         return false;
     auto it = queued_.find(id);
-    if (it == queued_.end()) return false;
-    it->sha256 = normalized;
-    it->verification.clear();
-    database_.save(it.value());
-    // Active transfers keep the checksum captured when they started; the new value applies on the next start.
-    return true;
+    if (it != queued_.end()) {
+        it->sha256 = normalized;
+        it->verification.clear();
+        database_.save(it.value());
+        // Active transfers keep the checksum captured when they started; the new value applies on the next start.
+        return true;
+    }
+    for (const auto &stored : database_.loadHistory()) {
+        if (stored.id != id || stored.type != QStringLiteral("http")) continue;
+        auto copy = stored;
+        copy.sha256 = normalized;
+        copy.verification.clear();
+        database_.save(copy);
+        return true;
+    }
+    return false;
 }
 
 bool DownloadManager::verifyChecksum(const QString &id, QString *message) {
+    PersistedDownload d;
+    bool found = false;
     auto it = queued_.find(id);
-    if (it == queued_.end() || it->sha256.isEmpty()) {
+    if (it != queued_.end()) {
+        d = it.value();
+        found = true;
+    } else {
+        for (const auto &stored : database_.loadHistory()) {
+            if (stored.id == id && stored.type == QStringLiteral("http")) {
+                d = stored;
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found || d.sha256.isEmpty()) {
         if (message) *message = QStringLiteral("No SHA-256 checksum is configured.");
         return false;
     }
-    const QString path = QDir(it->destination).filePath(it->filename);
+    const QString path = QDir(d.destination).filePath(d.filename);
     QString actual;
-    const bool ok = HttpDownloader::verifySha256(path, it->sha256, &actual);
-    it->verification = ok ? QStringLiteral("Verified") : QStringLiteral("Checksum mismatch");
-    database_.save(it.value());
+    const bool ok = HttpDownloader::verifySha256(path, d.sha256, &actual);
+    d.verification = ok ? QStringLiteral("Verified") : QStringLiteral("Checksum mismatch");
+    if (it != queued_.end()) it.value().verification = d.verification;
+    database_.save(d);
     if (message) *message = ok
         ? QStringLiteral("SHA-256 verified: %1").arg(actual)
-        : QStringLiteral("SHA-256 mismatch. Expected %1, got %2.").arg(it->sha256, actual);
+        : QStringLiteral("SHA-256 mismatch. Expected %1, got %2.").arg(d.sha256, actual);
     return ok;
 }
 
