@@ -2,61 +2,88 @@
 
 Free and open-source Windows x64 download manager.
 
-## Planned features
-- Segmented HTTP/HTTPS downloads
-- Pause/resume and persistent state
-- Queues, scheduling and speed limits
-- Browser integration
-- BitTorrent via libtorrent
-- Prebuilt Windows x64 EXE and portable ZIP releases
+## Current status
+
+Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTorrent download paths are implemented, persistent state is in place, and the Windows portable build pipeline is operational. Browser integration is implemented end-to-end at the application/extension/native-host level; release packaging and smoke testing remain.
+
+## Completed
+
+### Foundation
+- [x] Qt desktop shell
+- [x] CMake project
+- [x] vcpkg dependency manifest
+- [x] Windows x64 GitHub Actions build
+- [x] Portable ZIP artifact
+- [x] Persistent system tray / close-to-tray behavior
+
+### HTTP/HTTPS
+- [x] Multi-connection segmented downloads (1-8 connections)
+- [x] Range/segmentation with persistent .part.N files
+- [x] Pause/resume
+- [x] Retry/backoff
+- [x] Aggregate progress and speed reporting
+- [x] Persistent download history
+- [x] Resume after application restart
+- [x] Cancellation and cleanup
+- [x] Filename/history UI
+- [ ] Checksums / post-download integrity verification
+
+### Download manager/UI
+- [x] Queueing and persistence
+- [x] Unified HTTP + BitTorrent history
+- [x] Sorting/filtering
+- [x] Pause/resume controls
+- [x] Right-click download context menu
+- [x] Remove from history with optional source-file deletion
+- [x] Torrent recheck control
+- [ ] Full scheduler/calendar UI
+- [ ] Bandwidth limiting
+
+### BitTorrent
+- [x] libtorrent session
+- [x] Magnet links
+- [x] .torrent files
+- [x] DHT / trackers
+- [x] Piece verification / recheck
+- [x] Persistent torrent state / resume data
+- [x] Incomplete swarm availability warning and wait/continue choice
+- [x] Stall detection and health reporting
+- [x] Seeding ratio/time/forever/immediate policies
+- [x] Selective file priorities
+- [ ] Windows magnet: protocol association
+- [ ] Single-instance command forwarding for external protocol launches
+
+### Browser integration
+- [x] Manifest V3 extension
+- [x] Chromium native messaging
+- [x] Firefox native messaging
+- [x] Browser download interception
+- [x] HLS M3U8 capture
+- [x] YouTube capture via yt-dlp
+- [x] Direct media capture
+- [x] Per-user Windows native-host registration
+- [x] Stable Chromium extension identity
+- [x] Firefox extension identity
+- [x] yt-dlp nightly/stable channel selection
+- [x] Automatic yt-dlp update/retry path
+- [ ] Browser-extension store packaging / signed distribution
+
+### Release
+- [x] Windows x64 automated build
+- [x] Portable ZIP
+- [x] Bundled browser extension
+- [x] Bundled yt-dlp/FFmpeg/Deno toolchain
+- [ ] Installer
+- [ ] Automated release smoke tests
+- [ ] Signed binaries
+- [ ] Stable public release
 
 ## Architecture
-Qt 6 desktop UI -> DownloadManager -> HTTP engine (libcurl) / BitTorrent engine (libtorrent) -> persistence.
 
-## Development roadmap
-### Phase 0 — Foundation
-- [x] Qt desktop shell
-- [x] Download task abstraction
-- [x] Download manager abstraction
-- [x] CMake project
-- [x] vcpkg manifest
-- [ ] Windows CI
+Qt 6 desktop UI -> DownloadManager -> HTTP engine (libcurl) / BitTorrent engine (libtorrent) -> SQLite persistence.
 
-### Phase 1 — HTTP engine
-- [ ] HEAD/metadata probing
-- [ ] Range capability detection
-- [ ] Segmented transfers
-- [ ] Persistent partial files
-- [ ] Pause/resume
-- [ ] Retry/backoff
-- [ ] Progress/speed reporting
-- [ ] Filename and collision handling
-- [ ] Checksums
-
-### Phase 2 — Manager
-- [ ] SQLite persistence
-- [ ] Queue/scheduler
-- [ ] Limits
-- [ ] History
-
-### Phase 3 — BitTorrent
-- [ ] libtorrent session
-- [ ] Magnet links
-- [ ] Torrent files
-- [ ] DHT/trackers
-- [ ] Piece verification
-- [ ] Seeding controls
-
-### Phase 4 — Browser integration
-- [ ] Chromium native messaging
-- [ ] Firefox native messaging
-- [ ] Browser extensions
-
-### Phase 5 — Release
-- [ ] Installer
-- [ ] Portable ZIP
-- [ ] Automated Windows x64 builds
-- [ ] Release smoke tests
+Browser path: WebExtension -> native messaging -> BeatitBrowserHost -> local Qt IPC -> Beatit -> HTTP/yt-dlp.
 
 ## License
+
 GNU General Public License v3.0.
