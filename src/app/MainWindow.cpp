@@ -730,19 +730,30 @@ void MainWindow::showSettings(){
     row->addWidget(dayLabel); row->addWidget(dayEnabled); row->addWidget(new QLabel(QStringLiteral("Start"), schedulePage)); row->addWidget(start);
     row->addWidget(new QLabel(QStringLiteral("End"), schedulePage)); row->addWidget(endTime); row->addStretch();
     sl->addLayout(row);
-    auto loadDay = [this, calendar, dayLabel, dayEnabled, start, endTime]() {
+
+    std::array<bool, 7> scheduleEnabled{};
+    std::array<int, 7> scheduleStart{};
+    std::array<int, 7> scheduleEnd{};
+    for (int day = 1; day <= 7; ++day) {
+        scheduleEnabled[day - 1] = scheduler_->dayEnabled(day);
+        scheduleStart[day - 1] = scheduler_->startMinute(day);
+        scheduleEnd[day - 1] = scheduler_->endMinute(day);
+    }
+
+    auto loadDay = [calendar, dayLabel, dayEnabled, start, endTime, &scheduleEnabled, &scheduleStart, &scheduleEnd]() {
         const int day = calendar->selectedDate().dayOfWeek();
         static const QStringList names{QStringLiteral("Monday"),QStringLiteral("Tuesday"),QStringLiteral("Wednesday"),
                                        QStringLiteral("Thursday"),QStringLiteral("Friday"),QStringLiteral("Saturday"),QStringLiteral("Sunday")};
         dayLabel->setText(names[day - 1]);
-        dayEnabled->setChecked(scheduler_->dayEnabled(day));
-        start->setTime(QTime::fromMSecsSinceStartOfDay(scheduler_->startMinute(day) * 60000));
-        endTime->setTime(QTime::fromMSecsSinceStartOfDay(scheduler_->endMinute(day) * 60000));
+        dayEnabled->setChecked(scheduleEnabled[day - 1]);
+        start->setTime(QTime::fromMSecsSinceStartOfDay(scheduleStart[day - 1] * 60000));
+        endTime->setTime(QTime::fromMSecsSinceStartOfDay(scheduleEnd[day - 1] * 60000));
     };
-    auto saveDay = [this, calendar, dayEnabled, start, endTime]() {
-        const int day = calendar->selectedDate().dayOfWeek();
-        scheduler_->setDay(day, dayEnabled->isChecked(), start->time().hour() * 60 + start->time().minute(),
-                           endTime->time().hour() * 60 + endTime->time().minute());
+    auto saveDay = [calendar, dayEnabled, start, endTime, &scheduleEnabled, &scheduleStart, &scheduleEnd]() {
+        const int day = calendar->selectedDate().dayOfWeek() - 1;
+        scheduleEnabled[day] = dayEnabled->isChecked();
+        scheduleStart[day] = start->time().hour() * 60 + start->time().minute();
+        scheduleEnd[day] = endTime->time().hour() * 60 + endTime->time().minute();
     };
     connect(calendar, &QCalendarWidget::selectionChanged, &dialog, loadDay);
     connect(dayEnabled, &QCheckBox::toggled, &dialog, [saveDay](bool){ saveDay(); });
@@ -780,6 +791,8 @@ void MainWindow::showSettings(){
     settings.setValue(QStringLiteral("bandwidth/limit"), limit);
     downloadManager_->setBandwidthLimit(limit);
     torrentEngine_->setBandwidthLimit(limit);
+    for (int day = 1; day <= 7; ++day)
+        scheduler_->setDay(day, scheduleEnabled[day - 1], scheduleStart[day - 1], scheduleEnd[day - 1]);
     scheduler_->setEnabled(enabled->isChecked());
     torrentEngine_->setSeedingPolicy(mode->currentIndex(), ratio->value(), minutes->value());
 
