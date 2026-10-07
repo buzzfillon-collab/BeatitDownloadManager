@@ -67,7 +67,7 @@ int main(int argc, char *argv[]) {
                 for (const auto &value : array)
                     if (value.isString()) arguments.append(value.toString());
                 if (arguments.isEmpty())
-                    window.showFromTray();
+                    window.show(); window.raise(); window.activateWindow();
                 else
                     window.handleExternalCommand(arguments);
                 socket->disconnectFromServer();
