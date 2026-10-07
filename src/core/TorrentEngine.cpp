@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include <QSettings>
 #include <QVector>
+#include <limits>
 
 #include <libtorrent/add_torrent_params.hpp>
 #include <libtorrent/alert_types.hpp>
@@ -41,6 +42,7 @@ TorrentEngine::TorrentEngine(QObject *parent) : QObject(parent) {
     settings.set_bool(lt::settings_pack::enable_dht, true);
 
     loadSettings();
+    settings.set_int(lt::settings_pack::download_rate_limit, static_cast<int>(qMin<qint64>(bandwidthLimit_, std::numeric_limits<int>::max())));
     session_ = std::make_unique<lt::session>(settings);
     alertTimer_.setInterval(250);
     connect(&alertTimer_, &QTimer::timeout, this, &TorrentEngine::pollAlerts);
@@ -241,6 +243,7 @@ bool TorrentEngine::shouldStopSeeding(const lt::torrent_status &status) const {
 }
 void TorrentEngine::loadSettings() {
     QSettings s(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    bandwidthLimit_ = qMax<qint64>(0, s.value(QStringLiteral("bandwidth/limit"), 0).toLongLong());
     seedingPolicyMode_ = qBound(0, s.value(QStringLiteral("torrent/seedingMode"), 0).toInt(), 3);
     seedingRatio_ = qMax(0.1, s.value(QStringLiteral("torrent/seedingRatio"), 1.0).toDouble());
     seedingMinutes_ = qMax(1, s.value(QStringLiteral("torrent/seedingMinutes"), 30).toInt());
@@ -248,9 +251,31 @@ void TorrentEngine::loadSettings() {
 
 void TorrentEngine::persistSettings() {
     QSettings s(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    s.setValue(QStringLiteral("bandwidth/limit"), bandwidthLimit_);
     s.setValue(QStringLiteral("torrent/seedingMode"), seedingPolicyMode_);
     s.setValue(QStringLiteral("torrent/seedingRatio"), seedingRatio_);
     s.setValue(QStringLiteral("torrent/seedingMinutes"), seedingMinutes_);
+}
+
+void TorrentEngine::applyBandwidthLimit() {
+    if (!session_) return;
+    lt::settings_pack settings;
+    settings.set_int(lt::settings_pack::download_rate_limit,
+                     static_cast<int>(qMin<qint64>(bandwidthLimit_, std::numeric_limits<int>::max())));
+    session_->apply_settings(settings);
+}
+
+void TorrentEngine::setBandwidthLimit(qint64 bytesPerSecond) {
+    bandwidthLimit_ = qMax<qint64>(0, bytesPerSecond);
+    QSettings s(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    s.setValue(QStringLiteral("bandwidth/limit"), bandwidthLimit_);
+    applyBandwidthLimit();
+}
+
+void TorrentEngine::setSchedulerAllowed(bool allowed) {
+    if (schedulerAllowed_ == allowed) return;
+    schedulerAllowed_ = allowed;
+    scheduleTorrents();
 }
 
 void TorrentEngine::setSeedingPolicy(int mode, double ratio, int minutes) {
@@ -464,6 +489,24 @@ void TorrentEngine::restoreResumeData() {
 }
 
 void TorrentEngine::scheduleTorrents() {
+    if (!schedulerAllowed_) {
+        for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
+            if (!it->handle.is_valid() || it->userPaused || it->seedStopped) continue;
+            if (!(it->handle.flags() & lt::torrent_flags::paused)) {
+                it->schedulerPaused = true;
+                it->scheduled = false;
+                it->handle.pause();
+            }
+        }
+        return;
+    }
+    for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
+        if (it->schedulerPaused && it->handle.is_valid() && !it->userPaused && !it->seedStopped) {
+            it->schedulerPaused = false;
+            it->handle.resume();
+        }
+    }
+
     int activeDownloads = 0;
     for (auto it = torrents_.begin(); it != torrents_.end(); ++it) {
         if (!it->handle.is_valid()) continue;
