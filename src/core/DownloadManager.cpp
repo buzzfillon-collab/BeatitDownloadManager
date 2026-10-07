@@ -8,6 +8,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QUrl>
+#include <QCryptographicHash>
 
 DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
     database_.open();
@@ -57,11 +58,76 @@ void DownloadManager::persist(const QString &id, const QString &status, qint64 d
 
 void DownloadManager::setMaxActive(int count) {
     maxActive_ = qMax(1, count);
+    updateActiveBandwidthLimits();
     startNextQueued();
 }
 
 void DownloadManager::setHttpConnections(int count) {
     httpConnections_ = qBound(1, count, 8);
+}
+
+void DownloadManager::setBandwidthLimit(qint64 bytesPerSecond) {
+    bandwidthLimit_ = qMax<qint64>(0, bytesPerSecond);
+    updateActiveBandwidthLimits();
+}
+
+void DownloadManager::updateActiveBandwidthLimits() {
+    const qint64 perDownload = bandwidthLimit_ > 0
+        ? qMax<qint64>(1, bandwidthLimit_ / qMax(1, active_.size())) : 0;
+    for (auto it = active_.begin(); it != active_.end(); ++it)
+        it->downloader->setBandwidthLimit(perDownload);
+}
+
+void DownloadManager::setSchedulerAllowed(bool allowed) {
+    if (schedulerAllowed_ == allowed) return;
+    schedulerAllowed_ = allowed;
+    if (!allowed) {
+        const auto ids = active_.keys();
+        for (const QString &id : ids) {
+            schedulerPaused_[id] = true;
+            pause(id);
+        }
+    } else {
+        const auto ids = schedulerPaused_.keys();
+        schedulerPaused_.clear();
+        for (const QString &id : ids) {
+            if (queued_.contains(id) && queued_[id].status == QStringLiteral("Paused")) {
+                queued_[id].status = QStringLiteral("Queued");
+                database_.save(queued_[id]);
+            }
+        }
+        startNextQueued();
+    }
+}
+
+void DownloadManager::setExpectedSha256(const QString &id, const QString &sha256) {
+    const QString normalized = sha256.trimmed().toLower();
+    if (normalized.size() != 64 || normalized.contains(QRegularExpression(QStringLiteral("[^0-9a-f]"))))
+        return;
+    auto it = queued_.find(id);
+    if (it == queued_.end()) return;
+    it->sha256 = normalized;
+    it->verification.clear();
+    database_.save(it.value());
+    if (auto active = active_.find(id); active != active_.end())
+        active->downloader->setExpectedSha256(normalized);
+}
+
+bool DownloadManager::verifyChecksum(const QString &id, QString *message) {
+    auto it = queued_.find(id);
+    if (it == queued_.end() || it->sha256.isEmpty()) {
+        if (message) *message = QStringLiteral("No SHA-256 checksum is configured.");
+        return false;
+    }
+    const QString path = QDir(it->destination).filePath(it->filename);
+    QString actual;
+    const bool ok = HttpDownloader::verifySha256(path, it->sha256, &actual);
+    it->verification = ok ? QStringLiteral("Verified") : QStringLiteral("Checksum mismatch");
+    database_.save(it.value());
+    if (message) *message = ok
+        ? QStringLiteral("SHA-256 verified: %1").arg(actual)
+        : QStringLiteral("SHA-256 mismatch. Expected %1, got %2.").arg(it->sha256, actual);
+    return ok;
 }
 
 QString DownloadManager::addUrl(const QString &url, const QString &destination) {
@@ -82,6 +148,7 @@ QString DownloadManager::addUrl(const QString &url, const QString &destination) 
 }
 
 void DownloadManager::startNextQueued() {
+    if (!schedulerAllowed_) return;
     while (active_.size() < maxActive_) {
         QString id;
         for (auto it = queued_.cbegin(); it != queued_.cend(); ++it) {
@@ -100,9 +167,12 @@ void DownloadManager::startNextQueued() {
         auto *downloader = new HttpDownloader();
         downloader->moveToThread(thread);
         active_.insert(id, ActiveTask{d.source, d.destination, downloader, thread});
+        downloader->setExpectedSha256(d.sha256);
+        updateActiveBandwidthLimits();
 
         connect(thread, &QThread::started, downloader, [downloader, d, this] {
             downloader->setSegments(httpConnections_);
+            downloader->setExpectedSha256(d.sha256);
             downloader->start(d.source, d.destination);
         });
 
@@ -136,13 +206,19 @@ void DownloadManager::startNextQueued() {
         connect(downloader, &HttpDownloader::completed, this,
             [this, id, stopThread](const QString &path) {
                 const qint64 size = QFileInfo(path).size();
-                persist(id, QStringLiteral("Completed"), size, size);
+                auto &entry = queued_[id];
+                persist(id, entry.sha256.isEmpty() ? QStringLiteral("Completed") : QStringLiteral("Completed (verified)"), size, size);
+                entry.verification = entry.sha256.isEmpty() ? QString() : QStringLiteral("Verified");
+                database_.save(entry);
                 emit taskCompleted(id, path);
                 stopThread();
             });
 
         connect(downloader, &HttpDownloader::failed, this,
             [this, id, stopThread](const QString &error) {
+                auto &entry = queued_[id];
+                if (error.startsWith(QStringLiteral("SHA-256 checksum mismatch"))) entry.verification = QStringLiteral("Checksum mismatch");
+                database_.save(entry);
                 persist(id, QStringLiteral("Failed"), queued_.value(id).downloadedBytes,
                         queued_.value(id).totalBytes, 0, error);
                 emit taskFailed(id, error);
@@ -180,6 +256,7 @@ void DownloadManager::startNextQueued() {
                 it->thread->deleteLater();
                 active_.erase(it);
             }
+            updateActiveBandwidthLimits();
             startNextQueued();
         });
 
@@ -194,6 +271,7 @@ void DownloadManager::pause(const QString &id) {
 
 void DownloadManager::resume(const QString &id) {
     if (auto it = queued_.find(id); it != queued_.end()) {
+        schedulerPaused_.remove(id);
         it->status = QStringLiteral("Queued");
         database_.save(it.value());
         startNextQueued();
