@@ -585,7 +585,33 @@ void MainWindow::removeSelected(){
     else downloadManager_->remove(id, eraseFile);
 }
 
-void MainWindow::openSelected(){const QString id=selectedId();const QString path=paths_.value(id);if(!path.isEmpty())QDesktopServices::openUrl(QUrl::fromLocalFile(path));}
+void MainWindow::openSelected(){
+    const QString id = selectedId();
+    if (id.isEmpty()) return;
+
+    QString path = paths_.value(id);
+    if (id.startsWith(QStringLiteral("torrent-"))) {
+        path = torrentEngine_->torrentSavePath(id);
+        if (!path.isEmpty()) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+            return;
+        }
+    }
+
+    if (path.isEmpty()) {
+        const int row = selectedRow();
+        const QString filename = row >= 0 && downloadsTable_->item(row, 0)
+            ? downloadsTable_->item(row, 0)->text() : QString();
+        if (!filename.isEmpty())
+            path = QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation)).filePath(filename);
+    }
+
+    if (path.isEmpty()) {
+        statusLabel_->setText(QStringLiteral("File location is unavailable"));
+        return;
+    }
+    QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
 void MainWindow::recheckSelected(){
     const QString id=selectedId();
     if (!id.startsWith(QStringLiteral("torrent-"))) { statusLabel_->setText(QStringLiteral("Select a torrent first")); return; }
