@@ -27,6 +27,8 @@ QVector<PersistedDownload> readRows(sqlite3 *db, const char *sql) {
         d.speed = sqlite3_column_int64(s, 8);
         d.error = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 9)));
         d.updatedAt = sqlite3_column_int64(s, 10);
+        d.sha256 = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 11)));
+        d.verification = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 12)));
         out.push_back(std::move(d));
     }
     sqlite3_finalize(s);
@@ -63,15 +65,18 @@ void DownloadDatabase::initialize() {
         "total_bytes INTEGER NOT NULL DEFAULT 0,downloaded_bytes INTEGER NOT NULL DEFAULT 0,"
         "speed INTEGER NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '',"
         "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
-        "updated_at INTEGER NOT NULL DEFAULT (unixepoch()));");
+        "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
+        "sha256 TEXT NOT NULL DEFAULT '',verification TEXT NOT NULL DEFAULT '');");
+    execSql(asDb(db_), "ALTER TABLE downloads ADD COLUMN sha256 TEXT NOT NULL DEFAULT '';");
+    execSql(asDb(db_), "ALTER TABLE downloads ADD COLUMN verification TEXT NOT NULL DEFAULT '';");
     execSql(asDb(db_), "CREATE INDEX IF NOT EXISTS downloads_status ON downloads(status);");
 }
 
 bool DownloadDatabase::save(const PersistedDownload &d) {
     if (!open()) return false;
     const char *sql =
-        "INSERT INTO downloads(id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+        "INSERT INTO downloads(id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,sha256,verification)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
         "type=excluded.type,source=excluded.source,destination=excluded.destination,"
         "filename=excluded.filename,status=excluded.status,total_bytes=excluded.total_bytes,"
         "downloaded_bytes=excluded.downloaded_bytes,speed=excluded.speed,error=excluded.error,"
@@ -88,6 +93,8 @@ bool DownloadDatabase::save(const PersistedDownload &d) {
     sqlite3_bind_int64(s,8,d.downloadedBytes);
     sqlite3_bind_int64(s,9,d.speed);
     sqlite3_bind_text(s,10,d.error.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(s,11,d.sha256.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(s,12,d.verification.toUtf8().constData(),-1,SQLITE_TRANSIENT);
     const bool ok = sqlite3_step(s) == SQLITE_DONE;
     sqlite3_finalize(s);
     return ok;
