@@ -18,6 +18,7 @@ add_executable(BeatitDownloadManager WIN32
     src/core/DownloadDatabase.cpp src/core/DownloadDatabase.h
     src/core/HttpDownloader.cpp src/core/HttpDownloader.h
     src/core/TorrentEngine.cpp src/core/TorrentEngine.h
+    src/core/YtDlpManager.cpp src/core/YtDlpManager.h
     src/browser/BrowserBridge.cpp src/browser/BrowserBridge.h)
 
 target_include_directories(BeatitDownloadManager PRIVATE src)
