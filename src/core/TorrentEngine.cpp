@@ -17,6 +17,7 @@
 #include <libtorrent/write_resume_data.hpp>
 #include <libtorrent/settings_pack.hpp>
 #include <libtorrent/torrent_info.hpp>
+#include <libtorrent/load_torrent.hpp>
 
 namespace {
 QString makeId(int n) { return QStringLiteral("torrent-%1").arg(n); }
@@ -102,7 +103,8 @@ QString TorrentEngine::addTorrentFile(const QString &path, const QString &savePa
     }
 
     lt::error_code ec;
-    auto info = std::make_shared<lt::torrent_info>(path.toStdString(), ec);
+    lt::load_torrent_limits limits;
+    auto params = lt::load_torrent_file(path.toStdString(), ec, limits);
     if (ec) {
         emit torrentError({}, QStringLiteral("Unable to read torrent: %1")
             .arg(QString::fromStdString(ec.message())));
@@ -115,8 +117,6 @@ QString TorrentEngine::addTorrentFile(const QString &path, const QString &savePa
         return {};
     }
 
-    lt::add_torrent_params params;
-    params.ti = std::move(info);
     params.save_path = savePath.toStdString();
 
     auto handle = session_->add_torrent(std::move(params), ec);
@@ -422,11 +422,9 @@ void TorrentEngine::restoreResumeData() {
             params = lt::parse_magnet_uri(d.source.toStdString(), ec);
             usable = !ec;
         } else if (!d.source.isEmpty() && QFileInfo::exists(d.source)) {
-            auto info = std::make_shared<lt::torrent_info>(d.source.toStdString(), ec);
-            if (!ec) {
-                params.ti = std::move(info);
-                usable = true;
-            }
+            lt::load_torrent_limits limits;
+            params = lt::load_torrent_file(d.source.toStdString(), ec, limits);
+            usable = !ec;
         }
 
         if (!usable) continue;
