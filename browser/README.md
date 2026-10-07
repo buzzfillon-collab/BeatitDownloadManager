@@ -16,4 +16,4 @@ On Windows, the installer will register the native host under the browser's Nati
 
 For development, load browser/extension as an unpacked extension and install a development native-messaging manifest with its generated extension ID.
 
-HLS and YouTube are routed through the external yt-dlp backend when it is installed. Direct media URLs use Beatit's HTTP engine. A future installer should bundle pinned yt-dlp.exe and FFmpeg.
+HLS and YouTube are routed through the external yt-dlp backend. Portable builds bundle yt-dlp.exe (nightly by default), ffmpeg.exe, and ffprobe.exe. Beatit checks yt-dlp once per day and can switch between nightly and stable. If extraction fails, it updates yt-dlp and retries the download once. Direct media URLs use Beatit's HTTP engine.
