@@ -66,7 +66,7 @@ QIcon beatitIcon(){QPixmap x(64,64);x.fill(Qt::transparent);QPainter p(&x);p.set
 
 MainWindow::MainWindow(QWidget *parent):QMainWindow(parent),
 urlEdit_(new QLineEdit(this)),addButton_(new QPushButton(QStringLiteral("＋ Add"),this)),
-pauseButton_(new QPushButton(QStringLiteral("Pause"),this)),cancelButton_(new QPushButton(QStringLiteral("Cancel"),this)),
+pauseButton_(new QPushButton(QStringLiteral("Pause"),this)),resumeButton_(new QPushButton(QStringLiteral("Resume"),this)),cancelButton_(new QPushButton(QStringLiteral("Cancel"),this)),
 removeButton_(new QPushButton(QStringLiteral("Remove"),this)),
 openButton_(new QPushButton(QStringLiteral("Open"),this)), recheckButton_(new QPushButton(QStringLiteral("Recheck"),this)),downloadsTable_(new QTableWidget(this)),
 statusLabel_(new QLabel(QStringLiteral("Ready"),this)),downloadManager_(new DownloadManager(this)),
@@ -134,10 +134,11 @@ torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),
     downloadsTable_->horizontalHeader()->setSectionResizeMode(5,QHeaderView::ResizeToContents);
     downloadsTable_->setSortingEnabled(true);downloadsTable_->horizontalHeader()->setSortIndicator(5,Qt::DescendingOrder);downloadsTable_->sortItems(5,Qt::DescendingOrder);
     downloadsTable_->setSelectionBehavior(QAbstractItemView::SelectRows);downloadsTable_->setSelectionMode(QAbstractItemView::SingleSelection);
+    downloadsTable_->setContextMenuPolicy(Qt::CustomContextMenu);
     downloadsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);downloadsTable_->setShowGrid(false);downloadsTable_->verticalHeader()->setVisible(false);
     downloadsTable_->verticalHeader()->setDefaultSectionSize(58);
 
-    auto *a=new QHBoxLayout;a->setSpacing(8);a->addWidget(pauseButton_);a->addWidget(cancelButton_);a->addWidget(removeButton_);a->addWidget(openButton_);a->addWidget(recheckButton_);a->addStretch();a->addWidget(statusLabel_);
+    auto *a=new QHBoxLayout;a->setSpacing(8);a->addWidget(pauseButton_);a->addWidget(resumeButton_);a->addWidget(cancelButton_);a->addWidget(removeButton_);a->addWidget(openButton_);a->addWidget(recheckButton_);a->addStretch();a->addWidget(statusLabel_);
     r->addWidget(downloadsTable_,1);r->addLayout(a);body->addWidget(content,1);
     mainLayout->addLayout(body,1);setCentralWidget(root);
 
@@ -167,6 +168,10 @@ torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),
     )");
 
     addButton_->setObjectName("primary");setupTray();
+    connect(allButton, &QPushButton::clicked, this, [this] { filterDownloads(QStringLiteral("all")); });
+    connect(activeButton, &QPushButton::clicked, this, [this] { filterDownloads(QStringLiteral("active")); });
+    connect(completedButton, &QPushButton::clicked, this, [this] { filterDownloads(QStringLiteral("completed")); });
+    connect(torrentNav, &QPushButton::clicked, this, [this] { filterDownloads(QStringLiteral("torrent")); });
     connect(ytDlpManager_, &YtDlpManager::updateStarted, this, [this] {
         if (ytDlpRetryAfterUpdate_)
             statusLabel_->setText(QStringLiteral("Updating yt-dlp…"));
@@ -196,10 +201,45 @@ torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),
     connect(addButton_,&QPushButton::clicked,this,&MainWindow::addDownload);
     connect(urlEdit_,&QLineEdit::returnPressed,this,&MainWindow::addDownload);
     connect(pauseButton_,&QPushButton::clicked,this,&MainWindow::pauseSelected);
+    connect(resumeButton_,&QPushButton::clicked,this,&MainWindow::resumeSelected);
     connect(cancelButton_,&QPushButton::clicked,this,&MainWindow::cancelSelected);
     connect(removeButton_,&QPushButton::clicked,this,&MainWindow::removeSelected);
     connect(openButton_,&QPushButton::clicked,this,&MainWindow::openSelected);
     connect(recheckButton_,&QPushButton::clicked,this,&MainWindow::recheckSelected);
+    connect(downloadsTable_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
+        const int row = downloadsTable_->rowAt(pos.y());
+        if (row < 0) return;
+        downloadsTable_->selectRow(row);
+        const QString id = selectedId();
+        if (id.isEmpty()) return;
+
+        const QString status = downloadsTable_->item(row, 1)
+            ? downloadsTable_->item(row, 1)->text().toLower() : QString();
+        const bool torrent = id.startsWith(QStringLiteral("torrent-"));
+        const bool paused = status.contains(QStringLiteral("paused"));
+        const bool active = status.contains(QStringLiteral("downloading")) ||
+                            status.contains(QStringLiteral("queued")) ||
+                            status.contains(QStringLiteral("resolving")) ||
+                            status.contains(QStringLiteral("checking")) ||
+                            status.contains(QStringLiteral("waiting"));
+        const bool completed = status.contains(QStringLiteral("completed")) ||
+                               status.contains(QStringLiteral("finished")) ||
+                               status.contains(QStringLiteral("seeding"));
+
+        QMenu menu(this);
+        if (paused || (!completed && !active))
+            menu.addAction(QStringLiteral("Resume"), this, &MainWindow::resumeSelected);
+        if (active || status.contains(QStringLiteral("stalled")))
+            menu.addAction(QStringLiteral("Pause"), this, &MainWindow::pauseSelected);
+        if (torrent)
+            menu.addAction(QStringLiteral("Recheck files"), this, &MainWindow::recheckSelected);
+        if (!torrent && !completed)
+            menu.addAction(QStringLiteral("Cancel"), this, &MainWindow::cancelSelected);
+        menu.addAction(QStringLiteral("Remove from history…"), this, &MainWindow::removeSelected);
+        menu.addSeparator();
+        menu.addAction(QStringLiteral("Open"), this, &MainWindow::openSelected);
+        menu.exec(downloadsTable_->viewport()->mapToGlobal(pos));
+    });
     connect(settingsButton,&QPushButton::clicked,this,&MainWindow::showSettings);
     connect(fileButton,&QPushButton::clicked,this,[this]{
         const QString p=QFileDialog::getOpenFileName(this,"Open torrent",
@@ -479,6 +519,39 @@ void MainWindow::addDownload(){
     downloadManager_->addUrl(url,QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));urlEdit_->clear();statusLabel_->setText("Queued…");
 }
 void MainWindow::pauseSelected(){const QString id=selectedId();if(id.startsWith("torrent-"))torrentEngine_->pause(id);else if(!id.isEmpty())downloadManager_->pause(id);}
+void MainWindow::resumeSelected(){
+    const QString id=selectedId();
+    if(id.isEmpty()) return;
+    if(id.startsWith(QStringLiteral("torrent-"))) torrentEngine_->resume(id);
+    else downloadManager_->resume(id);
+    setStatus(id, QStringLiteral("Queued"));
+    statusLabel_->setText(QStringLiteral("Resumed"));
+}
+void MainWindow::filterDownloads(const QString &filter){
+    for(int row=0; row<downloadsTable_->rowCount(); ++row){
+        const QString id = downloadsTable_->item(row,0)
+            ? downloadsTable_->item(row,0)->data(Qt::UserRole).toString() : QString();
+        const QString status = downloadsTable_->item(row,1)
+            ? downloadsTable_->item(row,1)->text().toLower() : QString();
+        bool visible = true;
+        if(filter == QStringLiteral("active"))
+            visible = !status.contains(QStringLiteral("completed")) &&
+                      !status.contains(QStringLiteral("cancelled")) &&
+                      !status.contains(QStringLiteral("failed")) &&
+                      !status.contains(QStringLiteral("seeding stopped"));
+        else if(filter == QStringLiteral("completed"))
+            visible = status.contains(QStringLiteral("completed")) ||
+                      status.contains(QStringLiteral("finished")) ||
+                      status.contains(QStringLiteral("seeding"));
+        else if(filter == QStringLiteral("torrent"))
+            visible = id.startsWith(QStringLiteral("torrent-"));
+        downloadsTable_->setRowHidden(row, !visible);
+    }
+    statusLabel_->setText(filter == QStringLiteral("all") ? QStringLiteral("All downloads")
+                         : filter == QStringLiteral("active") ? QStringLiteral("Active downloads")
+                         : filter == QStringLiteral("completed") ? QStringLiteral("Completed downloads")
+                         : QStringLiteral("BitTorrent downloads"));
+}
 void MainWindow::cancelSelected(){const QString id=selectedId();if(id.startsWith("torrent-"))torrentEngine_->remove(id);else if(!id.isEmpty())downloadManager_->cancel(id);}
 void MainWindow::removeSelected(){
     const QString id=selectedId();
