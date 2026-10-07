@@ -56,6 +56,11 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force build/tools | Out-Null
           Invoke-WebRequest -Uri "https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp.exe" -OutFile build/tools/yt-dlp.exe
+          Invoke-WebRequest -Uri "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" -OutFile "$env:RUNNER_TEMP/deno.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP/deno.zip" -DestinationPath "$env:RUNNER_TEMP/deno" -Force
+          $deno = Get-ChildItem "$env:RUNNER_TEMP/deno" -Filter deno.exe -Recurse | Select-Object -First 1
+          if (-not $deno) { throw "Deno binary was not found in the downloaded archive." }
+          Copy-Item $deno.FullName build/tools/deno.exe -Force
           Invoke-WebRequest -Uri "https://github.com/yt-dlp/FFmpeg-Builds/releases/latest/download/ffmpeg-master-latest-win64-gpl.zip" -OutFile "$env:RUNNER_TEMP/ffmpeg.zip"
           Expand-Archive -Path "$env:RUNNER_TEMP/ffmpeg.zip" -DestinationPath "$env:RUNNER_TEMP/ffmpeg" -Force
           $ffmpeg = Get-ChildItem "$env:RUNNER_TEMP/ffmpeg" -Filter ffmpeg.exe -Recurse | Select-Object -First 1
