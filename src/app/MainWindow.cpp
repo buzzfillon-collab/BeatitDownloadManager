@@ -2,6 +2,7 @@
 #include "../core/DownloadManager.h"
 #include "../core/TorrentEngine.h"
 #include "../browser/BrowserBridge.h"
+#include "../core/YtDlpManager.h"
 #include <QAbstractItemView>
 #include <QCloseEvent>
 #include <QDesktopServices>
@@ -66,7 +67,7 @@ pauseButton_(new QPushButton(QStringLiteral("Pause"),this)),cancelButton_(new QP
 removeButton_(new QPushButton(QStringLiteral("Remove"),this)),
 openButton_(new QPushButton(QStringLiteral("Open"),this)), recheckButton_(new QPushButton(QStringLiteral("Recheck"),this)),downloadsTable_(new QTableWidget(this)),
 statusLabel_(new QLabel(QStringLiteral("Ready"),this)),downloadManager_(new DownloadManager(this)),
-torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
+torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
     setWindowTitle("Beatit");setWindowIcon(beatitIcon());setMinimumSize(1050,650);resize(1180,720);
 
     QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
@@ -163,6 +164,31 @@ torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),
     )");
 
     addButton_->setObjectName("primary");setupTray();
+    connect(ytDlpManager_, &YtDlpManager::updateStarted, this, [this] {
+        if (ytDlpRetryAfterUpdate_)
+            statusLabel_->setText(QStringLiteral("Updating yt-dlp…"));
+    });
+    connect(ytDlpManager_, &YtDlpManager::updateFinished, this,
+            [this](bool success, const QString &message) {
+        if (ytDlpRetryAfterUpdate_) {
+            if (success) {
+                statusLabel_->setText(QStringLiteral("yt-dlp updated — retrying stream download…"));
+                const bool youtube = ytDlpPendingKind_ == QStringLiteral("youtube");
+                const QString url = ytDlpPendingUrl_;
+                const QString kind = ytDlpPendingKind_;
+                startYtDlpDownload(url, youtube, kind);
+            } else {
+                ytDlpRetryAfterUpdate_ = false;
+                statusLabel_->setText(QStringLiteral("yt-dlp update failed: %1").arg(message));
+                trayIcon_->showMessage(QStringLiteral("Beatit"),
+                    QStringLiteral("yt-dlp update failed: %1").arg(message),
+                    QSystemTrayIcon::Warning);
+            }
+            return;
+        }
+        if (!message.isEmpty())
+            statusLabel_->setText(QStringLiteral("yt-dlp: %1").arg(message));
+    });
 
     connect(addButton_,&QPushButton::clicked,this,&MainWindow::addDownload);
     connect(urlEdit_,&QLineEdit::returnPressed,this,&MainWindow::addDownload);
@@ -307,6 +333,101 @@ torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),
         statusLabel_->setText(QStringLiteral("Browser integration ready"));
     }
 }
+void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QString &kind) {
+    if (ytDlpProcess_) {
+        statusLabel_->setText(QStringLiteral("A stream download is already running"));
+        return;
+    }
+
+    const QString executable = ytDlpManager_->executablePath();
+    if (executable.isEmpty()) {
+        trayIcon_->showMessage(QStringLiteral("Beatit"),
+            QStringLiteral("yt-dlp.exe was not found. Put it in Beatit's tools folder."),
+            QSystemTrayIcon::Warning);
+        statusLabel_->setText(QStringLiteral("yt-dlp missing"));
+        return;
+    }
+
+    const QString output = QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation))
+        .filePath(QStringLiteral("%(title)s.%(ext)s"));
+
+    ytDlpPendingUrl_ = url;
+    ytDlpPendingKind_ = kind;
+    ytDlpPendingArgs_ = {
+        QStringLiteral("--no-playlist"), QStringLiteral("--newline"),
+        QStringLiteral("-o"), output
+    };
+    if (youtube || kind == QStringLiteral("hls"))
+        ytDlpPendingArgs_ << QStringLiteral("--merge-output-format") << QStringLiteral("mp4");
+    ytDlpPendingArgs_ << url;
+
+    ytDlpProcess_ = new QProcess(this);
+    ytDlpProcess_->setProgram(executable);
+    ytDlpProcess_->setArguments(ytDlpPendingArgs_);
+    ytDlpProcess_->setProcessChannelMode(QProcess::MergedChannels);
+
+    connect(ytDlpProcess_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+            this, [this, youtube](int exitCode, QProcess::ExitStatus exitStatus) {
+        const QString output = QString::fromLocal8Bit(ytDlpProcess_->readAll()).trimmed();
+        const bool success = exitStatus == QProcess::NormalExit && exitCode == 0;
+
+        ytDlpProcess_->deleteLater();
+        ytDlpProcess_ = nullptr;
+
+        if (success) {
+            ytDlpRetryAfterUpdate_ = false;
+            statusLabel_->setText(QStringLiteral("Stream download completed"));
+            trayIcon_->showMessage(QStringLiteral("Beatit"),
+                                   youtube ? QStringLiteral("YouTube download complete")
+                                           : QStringLiteral("Stream download complete"));
+            return;
+        }
+
+        if (!ytDlpRetryAfterUpdate_) {
+            ytDlpRetryAfterUpdate_ = true;
+            statusLabel_->setText(QStringLiteral("yt-dlp failed — updating and retrying once…"));
+            ytDlpManager_->updateNow();
+            return;
+        }
+
+        ytDlpRetryAfterUpdate_ = false;
+        QString message = QStringLiteral("yt-dlp download failed");
+        if (!output.isEmpty()) {
+            const QStringList lines = output.split(
+                QRegularExpression(QStringLiteral("[\\r\\n]+")), Qt::SkipEmptyParts);
+            if (!lines.isEmpty())
+                message = lines.constLast();
+        }
+        statusLabel_->setText(message);
+        trayIcon_->showMessage(QStringLiteral("Beatit"), message, QSystemTrayIcon::Warning);
+    });
+
+    connect(ytDlpProcess_, &QProcess::errorOccurred, this,
+            [this](QProcess::ProcessError) {
+        if (!ytDlpProcess_) return;
+        const QString message = ytDlpProcess_->errorString();
+        ytDlpProcess_->deleteLater();
+        ytDlpProcess_ = nullptr;
+
+        if (!ytDlpRetryAfterUpdate_) {
+            ytDlpRetryAfterUpdate_ = true;
+            statusLabel_->setText(QStringLiteral("yt-dlp could not start — updating and retrying once…"));
+            ytDlpManager_->updateNow();
+            return;
+        }
+
+        ytDlpRetryAfterUpdate_ = false;
+        statusLabel_->setText(message);
+        trayIcon_->showMessage(QStringLiteral("Beatit"), message, QSystemTrayIcon::Warning);
+    });
+
+    ytDlpProcess_->start();
+    statusLabel_->setText(youtube ? QStringLiteral("YouTube download started")
+                                  : (kind == QStringLiteral("hls")
+                                      ? QStringLiteral("HLS download started")
+                                      : QStringLiteral("Stream download started")));
+}
+
 void MainWindow::handleBrowserCapture(const QString &url, const QString &title, const QString &kind) {
     Q_UNUSED(title);
     const QUrl parsed(url);
@@ -319,36 +440,8 @@ void MainWindow::handleBrowserCapture(const QString &url, const QString &title, 
     const bool hls = path.contains(QStringLiteral(".m3u8"));
 
     if (youtube || hls || kind == QStringLiteral("youtube") || kind == QStringLiteral("hls")) {
-        QString ytDlp;
-        const QString local = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("tools/yt-dlp.exe"));
-        if (QFileInfo::exists(local)) ytDlp = local;
-        else ytDlp = QStandardPaths::findExecutable(QStringLiteral("yt-dlp"));
-
-        if (ytDlp.isEmpty()) {
-            trayIcon_->showMessage(QStringLiteral("Beatit"),
-                QStringLiteral("Stream captured, but yt-dlp.exe was not found. Put it in Beatit's tools folder."),
-                QSystemTrayIcon::Warning);
-            statusLabel_->setText(QStringLiteral("Stream captured — yt-dlp missing"));
-            return;
-        }
-
-        const QString output = QDir(QStandardPaths::writableLocation(QStandardPaths::DownloadLocation))
-            .filePath(QStringLiteral("%(title)s.%(ext)s"));
-        QStringList args{QStringLiteral("--no-playlist"), QStringLiteral("--newline"),
-                         QStringLiteral("-o"), output};
-        if (youtube || hls)
-            args << QStringLiteral("--merge-output-format") << QStringLiteral("mp4");
-        args << url;
-
-        if (QProcess::startDetached(ytDlp, args)) {
-            statusLabel_->setText(youtube ? QStringLiteral("YouTube download started")
-                                          : QStringLiteral("HLS stream download started"));
-            trayIcon_->showMessage(QStringLiteral("Beatit"),
-                youtube ? QStringLiteral("YouTube download started")
-                        : QStringLiteral("HLS stream download started"));
-        } else {
-            statusLabel_->setText(QStringLiteral("Could not start stream backend"));
-        }
+        startYtDlpDownload(url, youtube || kind == QStringLiteral("youtube"),
+                           hls || kind == QStringLiteral("hls") ? QStringLiteral("hls") : kind);
         return;
     }
 
@@ -408,6 +501,25 @@ void MainWindow::recheckSelected(){
 void MainWindow::showSettings(){
     QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
     bool ok=false;
+
+    const QStringList ytChannels{QStringLiteral("Nightly (recommended)"),
+                                  QStringLiteral("Stable")};
+    const int ytCurrent = ytDlpManager_->channel() == YtDlpManager::Channel::Stable ? 1 : 0;
+    const QString ytChoice = QInputDialog::getItem(
+        this, QStringLiteral("yt-dlp release channel"),
+        QStringLiteral("Channel:"), ytChannels, ytCurrent, false, &ok);
+    if (!ok) return;
+    const auto newChannel = ytChannels.indexOf(ytChoice) == 1
+        ? YtDlpManager::Channel::Stable : YtDlpManager::Channel::Nightly;
+    const bool channelChanged = newChannel != ytDlpManager_->channel();
+    ytDlpManager_->setChannel(newChannel);
+
+    if (channelChanged ||
+        QMessageBox::question(this, QStringLiteral("yt-dlp updates"),
+            QStringLiteral("Check yt-dlp for updates now?")) == QMessageBox::Yes) {
+        ytDlpManager_->updateNow();
+        statusLabel_->setText(QStringLiteral("Checking yt-dlp updates…"));
+    }
     const int current=qBound(1,downloadManager_->httpConnections(),8);
     const int value=QInputDialog::getInt(this,QStringLiteral("Beatit Settings"),
         QStringLiteral("HTTP connections per download:"),current,1,8,1,&ok);
