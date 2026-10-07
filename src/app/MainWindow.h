@@ -5,7 +5,7 @@
 #include <QSystemTrayIcon>
 
 class QLabel; class QLineEdit; class QPushButton; class QTableWidget; class QCloseEvent; class QCheckBox;
-class QMenu; class DownloadManager; class TorrentEngine; class BrowserBridge; class YtDlpManager; class QProcess;
+class QMenu; class DownloadManager; class Scheduler; class TorrentEngine; class BrowserBridge; class YtDlpManager; class QProcess;
 
 class MainWindow final : public QMainWindow {
     Q_OBJECT
@@ -28,6 +28,7 @@ private slots:
     void handleBrowserCapture(const QString &url, const QString &title, const QString &kind);
     void startYtDlpDownload(const QString &url, bool youtube, const QString &kind);
     void filterDownloads(const QString &filter);
+    void configureChecksumSelected();
 private:
     int selectedRow() const;
     QString selectedId() const;
@@ -36,7 +37,7 @@ private:
     int rowForId(const QString &id) const;
     QLineEdit *urlEdit_; QPushButton *addButton_; QPushButton *pauseButton_; QPushButton *resumeButton_;
     QPushButton *cancelButton_; QPushButton *removeButton_; QPushButton *openButton_; QPushButton *recheckButton_; QTableWidget *downloadsTable_;
-    QLabel *statusLabel_; DownloadManager *downloadManager_; TorrentEngine *torrentEngine_;
+    QLabel *statusLabel_; DownloadManager *downloadManager_; TorrentEngine *torrentEngine_; Scheduler *scheduler_;
     QSystemTrayIcon *trayIcon_; QMenu *trayMenu_;
     BrowserBridge *browserBridge_;
     YtDlpManager *ytDlpManager_;
