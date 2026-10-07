@@ -2,6 +2,7 @@
 #include "../core/DownloadManager.h"
 #include "../core/TorrentEngine.h"
 #include "../browser/BrowserBridge.h"
+#include "../browser/BrowserInstaller.h"
 #include "../core/YtDlpManager.h"
 #include <QAbstractItemView>
 #include <QCloseEvent>
@@ -370,11 +371,20 @@ torrentEngine_(new TorrentEngine(this)),browserBridge_(new BrowserBridge(this)),
     });
     connect(torrentEngine_,&TorrentEngine::torrentError,this,[this](const QString&,const QString&e){trayIcon_->showMessage("Beatit",e,QSystemTrayIcon::Warning);});
 
+    QString browserInstallError;
+    const bool browserInstalled = BrowserInstaller::install(&browserInstallError);
     if (browserBridge_->start()) {
         connect(browserBridge_, &BrowserBridge::captureRequested,
                 this, &MainWindow::handleBrowserCapture);
-        statusLabel_->setText(QStringLiteral("Browser integration ready"));
+        statusLabel_->setText(browserInstalled
+            ? QStringLiteral("Browser integration ready")
+            : QStringLiteral("Browser bridge ready; native host registration failed"));
+    } else {
+        statusLabel_->setText(QStringLiteral("Browser integration unavailable"));
     }
+    if (!browserInstalled && !browserInstallError.isEmpty())
+        trayIcon_->showMessage(QStringLiteral("Beatit browser integration"), browserInstallError,
+                               QSystemTrayIcon::Warning);
 
     ytDlpManager_->updateIfDue();
 }
