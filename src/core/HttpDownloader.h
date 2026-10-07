@@ -25,11 +25,12 @@ signals:
     void completed(const QString &path);
     void failed(const QString &message);
     void cancelled();
+public:
+    static bool verifySha256(const QString &path, const QString &expected, QString *actual = nullptr);
 private:
     void run(const QString &url, const QString &destination);
     static QString filenameFromUrl(const QString &url);
     static QString humanCurlError(int code);
-    static bool verifySha256(const QString &path, const QString &expected, QString *actual = nullptr);
     std::atomic_bool pauseRequested_{false};
     std::atomic_bool cancelRequested_{false};
     std::atomic_int segmentCount_{4};
