@@ -32,6 +32,9 @@ public:
     int seedingPolicyMode() const { return seedingPolicyMode_; }
     double seedingRatio() const { return seedingRatio_; }
     int seedingMinutes() const { return seedingMinutes_; }
+    void setBandwidthLimit(qint64 bytesPerSecond);
+    qint64 bandwidthLimit() const noexcept { return bandwidthLimit_; }
+    void setSchedulerAllowed(bool allowed);
 
 signals:
     void torrentAdded(const QString &id, const QString &name);
@@ -67,6 +70,7 @@ private:
         qint64 lastProgressBytes = 0;
         qint64 lastProgressTime = 0;
         qint64 seedStartTime = 0;
+        bool schedulerPaused = false;
     };
 
     void scheduleTorrents();
@@ -77,6 +81,7 @@ private:
     bool shouldStopSeeding(const lt::torrent_status &status) const;
     void persistSettings();
     void loadSettings();
+    void applyBandwidthLimit();
 
     std::unique_ptr<lt::session> session_;
     QTimer alertTimer_;
@@ -89,4 +94,6 @@ private:
     int seedingPolicyMode_ = 0; // 0=ratio, 1=time, 2=forever, 3=stop immediately
     double seedingRatio_ = 1.0;
     int seedingMinutes_ = 30;
+    qint64 bandwidthLimit_ = 0;
+    bool schedulerAllowed_ = true;
 };
