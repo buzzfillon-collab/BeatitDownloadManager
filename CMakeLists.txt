@@ -19,6 +19,7 @@ add_executable(BeatitDownloadManager WIN32
     src/core/HttpDownloader.cpp src/core/HttpDownloader.h
     src/core/TorrentEngine.cpp src/core/TorrentEngine.h
     src/core/YtDlpManager.cpp src/core/YtDlpManager.h
+    src/core/Scheduler.cpp src/core/Scheduler.h
     src/browser/BrowserBridge.cpp src/browser/BrowserBridge.h
     src/browser/BrowserInstaller.cpp src/browser/BrowserInstaller.h)
 
