@@ -50,8 +50,8 @@ Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTo
 - [x] Stall detection and health reporting
 - [x] Seeding ratio/time/forever/immediate policies
 - [x] Selective file priorities
-- [ ] Windows magnet: protocol association
-- [ ] Single-instance command forwarding for external protocol launches
+- [x] Windows magnet: protocol association (installer)
+- [x] Single-instance command forwarding for external protocol launches
 
 ### Browser integration
 - [x] Manifest V3 extension
