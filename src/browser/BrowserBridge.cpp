@@ -1,6 +1,7 @@
 #include "BrowserBridge.h"
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QDateTime>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QUrl>
@@ -9,8 +10,15 @@ BrowserBridge::BrowserBridge(QObject *parent) : QObject(parent), server_(new QLo
     connect(server_, &QLocalServer::newConnection, this, &BrowserBridge::acceptConnection);
 }
 bool BrowserBridge::start() {
-    QLocalServer::removeServer(QString::fromLatin1(kServerName));
-    return server_->listen(QString::fromLatin1(kServerName));
+    const QString name = QString::fromLatin1(kServerName);
+    if (server_->listen(name)) return true;
+
+    QLocalSocket probe;
+    probe.connectToServer(name);
+    if (probe.waitForConnected(150)) return false;
+
+    QLocalServer::removeServer(name);
+    return server_->listen(name);
 }
 void BrowserBridge::acceptConnection() {
     while (auto *socket = server_->nextPendingConnection()) {
@@ -38,6 +46,15 @@ void BrowserBridge::processMessage(QLocalSocket *socket, const QJsonObject &mess
         socket->write(QJsonDocument(QJsonObject{{"ok", false}, {"error", "invalid-url"}}).toJson(QJsonDocument::Compact));
         socket->disconnectFromServer(); return;
     }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 last = recentCaptures_.value(url, 0);
+    if (last > 0 && now - last < 15000) {
+        socket->write(QJsonDocument(QJsonObject{{"ok", true}, {"duplicate", true}})
+                          .toJson(QJsonDocument::Compact));
+        socket->disconnectFromServer();
+        return;
+    }
+    recentCaptures_[url] = now;
     emit captureRequested(url, title, kind);
     socket->write(QJsonDocument(QJsonObject{{"ok", true}}).toJson(QJsonDocument::Compact));
     socket->disconnectFromServer();
