@@ -14,6 +14,8 @@ struct PersistedDownload {
     qint64 speed = 0;
     QString error;
     qint64 updatedAt = 0;
+    QString sha256;
+    QString verification;
 };
 
 class DownloadDatabase final {
