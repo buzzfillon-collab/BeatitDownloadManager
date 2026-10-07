@@ -9,6 +9,8 @@
 #include <QCloseEvent>
 #include <QDesktopServices>
 #include <QCheckBox>
+#include <QComboBox>
+#include <QFormLayout>
 #include <QDateTime>
 #include <QDir>
 #include <QMessageBox>
@@ -654,6 +656,32 @@ void MainWindow::recheckSelected(){
     torrentEngine_->forceRecheck(id);
     statusLabel_->setText(QStringLiteral("Rechecking torrent files…"));
 }
+void MainWindow::configureChecksumSelected(){
+    const QString id = selectedId();
+    if (id.isEmpty() || id.startsWith(QStringLiteral("torrent-"))) return;
+    bool ok = false;
+    const QString hash = QInputDialog::getText(
+        this, QStringLiteral("SHA-256 checksum"),
+        QStringLiteral("Expected SHA-256 (64 hexadecimal characters):"),
+        QLineEdit::Normal, QString(), &ok).trimmed().toLower();
+    if (!ok) return;
+    if (!downloadManager_->setExpectedSha256(id, hash)) {
+        QMessageBox::warning(this, QStringLiteral("Invalid checksum"),
+                             QStringLiteral("Enter exactly 64 hexadecimal characters."));
+        return;
+    }
+    const QString status = downloadsTable_->item(selectedRow(), 1)
+        ? downloadsTable_->item(selectedRow(), 1)->text().toLower() : QString();
+    if (status.contains(QStringLiteral("completed"))) {
+        QString message;
+        const bool verified = downloadManager_->verifyChecksum(id, &message);
+        setStatus(id, verified ? QStringLiteral("Completed (verified)") : QStringLiteral("Failed — checksum mismatch"));
+        QMessageBox::information(this, QStringLiteral("SHA-256 verification"), message);
+    } else {
+        statusLabel_->setText(QStringLiteral("SHA-256 configured; it will be verified after download."));
+    }
+}
+
 void MainWindow::showSettings(){
     QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
     QDialog dialog(this);
