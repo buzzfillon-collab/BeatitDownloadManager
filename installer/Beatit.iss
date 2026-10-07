@@ -35,14 +35,14 @@ Name: "{autoprograms}/{#MyAppName}"; Filename: "{app}/{#MyAppExeName}"
 Name: "{autodesktop}/{#MyAppName}"; Filename: "{app}/{#MyAppExeName}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software/Classes/magnet"; ValueType: string; ValueName: ""; ValueData: "URL:Magnet Protocol"; Flags: uninsdeletekeyifempty
-Root: HKCU; Subkey: "Software/Classes/magnet"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software/Classes/magnet/DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}/{#MyAppExeName},0"; Flags: uninsdeletekeyifempty
-Root: HKCU; Subkey: "Software/Classes/magnet/shell/open/command"; ValueType: string; ValueName: ""; ValueData: """{app}/{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekeyifempty
-Root: HKCU; Subkey: "Software/Classes/.torrent"; ValueType: string; ValueName: ""; ValueData: "BeatitTorrentFile"; Flags: uninsdeletevalue
-Root: HKCU; Subkey: "Software/Classes/BeatitTorrentFile"; ValueType: string; ValueName: ""; ValueData: "BitTorrent file"; Flags: uninsdeletekeyifempty
-Root: HKCU; Subkey: "Software/Classes/BeatitTorrentFile/DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}/{#MyAppExeName},0"; Flags: uninsdeletekeyifempty
-Root: HKCU; Subkey: "Software/Classes/BeatitTorrentFile/shell/open/command"; ValueType: string; ValueName: ""; ValueData: """{app}/{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\Classes\magnet"; ValueType: string; ValueName: ""; ValueData: "URL:Magnet Protocol"; Flags: uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\Classes\magnet"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\magnet\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"; Flags: uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\Classes\magnet\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\Classes\.torrent"; ValueType: string; ValueName: ""; ValueData: "BeatitTorrentFile"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Classes\BeatitTorrentFile"; ValueType: string; ValueName: ""; ValueData: "BitTorrent file"; Flags: uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\Classes\BeatitTorrentFile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#MyAppExeName},0"; Flags: uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\Classes\BeatitTorrentFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Flags: uninsdeletekeyifempty
 
 [Run]
 Filename: "{app}/{#MyAppExeName}"; Description: "Launch Beatit Download Manager"; Flags: nowait postinstall skipifsilent
