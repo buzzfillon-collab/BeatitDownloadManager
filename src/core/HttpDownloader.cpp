@@ -135,9 +135,9 @@ SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QStrin
     curl_easy_setopt(curl,CURLOPT_LOW_SPEED_TIME,60L);
     curl_easy_setopt(curl,CURLOPT_USERAGENT,"BeatitDownloadManager/0.1 beta");
     curl_easy_setopt(curl,CURLOPT_NOSIGNAL,1L);
-    const qint64 limit = owner->bandwidthLimit_.load();
+    const qint64 limit = owner->bandwidthLimit();
     if (limit > 0) curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE,
-                                    static_cast<curl_off_t>(qMax<qint64>(1, limit / qMax(1, owner->segmentCount_.load()))));
+                                    static_cast<curl_off_t>(qMax<qint64>(1, limit / qMax(1, owner->segmentCount()))));
     curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,segmentWrite);
     curl_easy_setopt(curl,CURLOPT_WRITEDATA,&ctx);
     curl_easy_setopt(curl,CURLOPT_XFERINFOFUNCTION,segmentProgress);
