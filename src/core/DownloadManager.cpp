@@ -110,8 +110,7 @@ bool DownloadManager::setExpectedSha256(const QString &id, const QString &sha256
     it->sha256 = normalized;
     it->verification.clear();
     database_.save(it.value());
-    if (auto active = active_.find(id); active != active_.end())
-        active->downloader->setExpectedSha256(normalized);
+    // Active transfers keep the checksum captured when they started; the new value applies on the next start.
     return true;
 }
 
