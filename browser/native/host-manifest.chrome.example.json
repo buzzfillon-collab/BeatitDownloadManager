@@ -3,5 +3,5 @@
   "description": "Beatit Download Manager browser integration",
   "path": "BeatitBrowserHost.exe",
   "type": "stdio",
-  "allowed_origins": ["chrome-extension://REPLACE_WITH_EXTENSION_ID/"]
+  "allowed_origins": ["chrome-extension://mhmokbkgppciedcjabjlhkbhipnkfkpb/"]
 }
