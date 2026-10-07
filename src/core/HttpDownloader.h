@@ -12,6 +12,8 @@ public:
     void pause();
     void cancel();
     void setSegments(int count);
+    void setBandwidthLimit(qint64 bytesPerSecond);
+    void setExpectedSha256(const QString &sha256);
     bool isCancelRequested() const noexcept;
 signals:
     void probing();
@@ -25,7 +27,10 @@ private:
     void run(const QString &url, const QString &destination);
     static QString filenameFromUrl(const QString &url);
     static QString humanCurlError(int code);
+    static bool verifySha256(const QString &path, const QString &expected, QString *actual = nullptr);
     std::atomic_bool pauseRequested_{false};
     std::atomic_bool cancelRequested_{false};
     std::atomic_int segmentCount_{4};
+    std::atomic<qint64> bandwidthLimit_{0};
+    QString expectedSha256_;
 };
