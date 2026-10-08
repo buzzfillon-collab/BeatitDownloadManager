@@ -46,3 +46,23 @@ chrome.downloads.onCreated.addListener(async (item) => {
     try { await chrome.downloads.cancel(item.id); } catch (_) {}
   }
 });
+
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: "beatit-download-page",
+    title: "Download with Beatit",
+    contexts: ["page", "video", "link"]
+  });
+});
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (!tab?.url) return;
+  const url = info.linkUrl || info.srcUrl || tab.url;
+  if (!/^https?:/i.test(url)) return;
+  send({
+    url,
+    pageUrl: tab.url,
+    title: tab.title || "",
+    kind: info.mediaType === "video" ? "video" : "download"
+  });
+});
