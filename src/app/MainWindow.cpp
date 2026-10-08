@@ -309,7 +309,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         const int row=rowForId(id);if(row<0)return;
         setProgress(downloadsTable_,row,total>0?static_cast<int>(done*100/total):0,false);
         downloadedBytes_[id] = done;
-        totalBytes_[id] = total;
+        if (total >= 0) totalBytes_[id] = total;
         currentDownloadSpeed_[id] = speed;
         if (!startedAt_.contains(id)) startedAt_[id] = QDateTime::currentSecsSinceEpoch();
         downloadsTable_->item(row,3)->setText(formatSpeed(speed));statusLabel_->setText(QStringLiteral("%1 downloaded").arg(formatBytes(done)));
@@ -971,6 +971,16 @@ void MainWindow::showSettings(){
     bandwidth->setSuffix(QStringLiteral(" KiB/s (0 = unlimited)"));
     bandwidth->setValue(static_cast<int>(settings.value(QStringLiteral("bandwidth/limit"), 0).toLongLong() / 1024));
     g->addRow(QStringLiteral("Global download limit"), bandwidth);
+    auto *proxyType = new QComboBox(general);
+    proxyType->addItems({QStringLiteral("No proxy"), QStringLiteral("HTTP proxy"), QStringLiteral("SOCKS5 hostname")});
+    proxyType->setCurrentIndex(settings.value(QStringLiteral("proxy/type"), 0).toInt());
+    auto *proxyHost = new QLineEdit(settings.value(QStringLiteral("proxy/host")).toString(), general);
+    auto *proxyPort = new QSpinBox(general);
+    proxyPort->setRange(0, 65535);
+    proxyPort->setValue(settings.value(QStringLiteral("proxy/port"), 0).toInt());
+    g->addRow(QStringLiteral("Proxy / SOCKS"), proxyType);
+    g->addRow(QStringLiteral("Proxy host"), proxyHost);
+    g->addRow(QStringLiteral("Proxy port"), proxyPort);
     auto *note = new QLabel(QStringLiteral("The bandwidth limit applies to HTTP and BitTorrent downloads."), general);
     note->setWordWrap(true);
     g->addRow(QString(), note);
