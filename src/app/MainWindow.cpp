@@ -89,6 +89,9 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     downloadManager_->setHttpConnections(settings.value(QStringLiteral("http/connections"), 8).toInt());
     const qint64 bandwidth = settings.value(QStringLiteral("bandwidth/limit"), 0).toLongLong();
     downloadManager_->setBandwidthLimit(bandwidth);
+    downloadManager_->setProxy(settings.value(QStringLiteral("proxy/host")).toString(),
+                               settings.value(QStringLiteral("proxy/port"), 0).toInt(),
+                               settings.value(QStringLiteral("proxy/type"), 0).toInt());
     torrentEngine_->setBandwidthLimit(bandwidth);
     connect(scheduler_, &Scheduler::scheduleStateChanged, this, [this](bool allowed) {
         downloadManager_->setSchedulerAllowed(allowed);
@@ -806,7 +809,8 @@ void MainWindow::handleExternalCommand(const QStringList &arguments) {
         if (value.isEmpty() || value == QStringLiteral("--hidden")) continue;
         if (value.startsWith(QStringLiteral("magnet:?")) ||
             value.startsWith(QStringLiteral("http://")) ||
-            value.startsWith(QStringLiteral("https://"))) {
+            value.startsWith(QStringLiteral("https://")) ||
+            value.startsWith(QStringLiteral("ftp://"))) {
             urlEdit_->setText(value);
             addDownload();
             showFromTray();
@@ -824,7 +828,7 @@ void MainWindow::addDownload(){
     const QString url=urlEdit_->text().trimmed();
     if(url.startsWith("magnet:?")){torrentEngine_->addMagnet(url,QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));urlEdit_->clear();statusLabel_->setText("Adding torrent…");return;}
     const QUrl parsed(url);
-    if(!parsed.isValid()||(parsed.scheme()!="http"&&parsed.scheme()!="https")){statusLabel_->setText("Invalid URL");return;}
+    if(!parsed.isValid()||(parsed.scheme()!="http"&&parsed.scheme()!="https"&&parsed.scheme()!="ftp")){statusLabel_->setText("Invalid URL");return;}
     downloadManager_->addUrl(url,QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));urlEdit_->clear();statusLabel_->setText("Queued…");
 }
 void MainWindow::pauseSelected(){const QString id=selectedId();if(id.startsWith("torrent-"))torrentEngine_->pause(id);else if(!id.isEmpty())downloadManager_->pause(id);}
@@ -1051,6 +1055,10 @@ void MainWindow::showSettings(){
     const qint64 limit = static_cast<qint64>(bandwidth->value()) * 1024;
     settings.setValue(QStringLiteral("bandwidth/limit"), limit);
     downloadManager_->setBandwidthLimit(limit);
+    settings.setValue(QStringLiteral("proxy/type"), proxyType->currentIndex());
+    settings.setValue(QStringLiteral("proxy/host"), proxyHost->text().trimmed());
+    settings.setValue(QStringLiteral("proxy/port"), proxyPort->value());
+    downloadManager_->setProxy(proxyHost->text().trimmed(), proxyPort->value(), proxyType->currentIndex());
     torrentEngine_->setBandwidthLimit(limit);
     for (int day = 1; day <= 7; ++day)
         scheduler_->setDay(day, scheduleEnabled[day - 1], scheduleStart[day - 1], scheduleEnd[day - 1]);
