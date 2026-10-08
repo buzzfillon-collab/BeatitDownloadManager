@@ -67,6 +67,12 @@ void DownloadManager::setHttpConnections(int count) {
     httpConnections_ = qBound(1, count, 8);
 }
 
+void DownloadManager::setProxy(const QString &host, int port, int type) {
+    proxyHost_ = host.trimmed();
+    proxyPort_ = qBound(0, port, 65535);
+    proxyType_ = qBound(0, type, 2);
+}
+
 void DownloadManager::setBandwidthLimit(qint64 bytesPerSecond) {
     bandwidthLimit_ = qMax<qint64>(0, bytesPerSecond);
     updateActiveBandwidthLimits();
@@ -194,11 +200,13 @@ void DownloadManager::startNextQueued() {
         downloader->moveToThread(thread);
         active_.insert(id, ActiveTask{d.source, d.destination, downloader, thread});
         downloader->setExpectedSha256(d.sha256);
+        downloader->setProxy(proxyHost_, proxyPort_, proxyType_);
         updateActiveBandwidthLimits();
 
         connect(thread, &QThread::started, downloader, [downloader, d, this] {
             downloader->setSegments(httpConnections_);
             downloader->setExpectedSha256(d.sha256);
+            downloader->setProxy(proxyHost_, proxyPort_, proxyType_);
             downloader->start(d.source, d.destination);
         });
 
