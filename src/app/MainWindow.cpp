@@ -574,11 +574,11 @@ void MainWindow::chooseVideoFormat(const QString &url, bool youtube, const QStri
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("PATH"), toolsDir + QStringLiteral(";") + env.value(QStringLiteral("PATH")));
     probe->setProcessEnvironment(env);
-    probe->setProcessChannelMode(QProcess::MergedChannels);
+    probe->setProcessChannelMode(QProcess::SeparateChannels);
 
     connect(probe, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
             [this, probe, url, youtube, kind](int code, QProcess::ExitStatus state) {
-        const QByteArray raw = probe->readAll();
+        const QByteArray raw = probe->readAllStandardOutput();
         const bool ok = state == QProcess::NormalExit && code == 0;
         probe->deleteLater();
 
