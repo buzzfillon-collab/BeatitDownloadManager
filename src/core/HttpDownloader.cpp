@@ -172,9 +172,6 @@ void HttpDownloader::setProxy(const QString &host, int port, int type) {
     proxyPort_ = qBound(0, port, 65535);
     proxyType_ = qBound(0, type, 2);
 }
-int HttpDownloader::proxyPort() const noexcept { return proxyPort_; }
-int HttpDownloader::proxyType() const noexcept { return proxyType_; }
-const QString &HttpDownloader::proxyHost() const noexcept { return proxyHost_; }
 bool HttpDownloader::verifySha256(const QString &path, const QString &expected, QString *actual) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) return false;
