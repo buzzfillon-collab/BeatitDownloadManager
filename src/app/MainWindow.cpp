@@ -46,6 +46,9 @@
 #include <QTimeEdit>
 #include <QTabWidget>
 #include <QCalendarWidget>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTimer>
 
 namespace {
@@ -463,6 +466,8 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
                           << QStringLiteral("--audio-format") << QStringLiteral("mp3")
                           << QStringLiteral("--audio-quality") << QStringLiteral("0");
     }
+    if (!ytDlpFormat_.isEmpty() && !audioOnly)
+        ytDlpPendingArgs_ << QStringLiteral("-f") << ytDlpFormat_;
     if (youtube || kind == QStringLiteral("hls"))
         ytDlpPendingArgs_ << QStringLiteral("--merge-output-format") << QStringLiteral("mp4");
     ytDlpPendingArgs_ << url;
@@ -488,6 +493,7 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
 
         if (success) {
             ytDlpRetryAfterUpdate_ = false;
+            ytDlpFormat_.clear();
             statusLabel_->setText(QStringLiteral("Stream download completed"));
             trayIcon_->showMessage(QStringLiteral("Beatit"),
                                    audioOnly ? QStringLiteral("MP3 download complete")
@@ -504,6 +510,7 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
         }
 
         ytDlpRetryAfterUpdate_ = false;
+        ytDlpFormat_.clear();
         QString message = QStringLiteral("yt-dlp download failed");
         if (!output.isEmpty()) {
             const QStringList lines = output.split(
@@ -530,6 +537,7 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
         }
 
         ytDlpRetryAfterUpdate_ = false;
+        ytDlpFormat_.clear();
         statusLabel_->setText(message);
         trayIcon_->showMessage(QStringLiteral("Beatit"), message, QSystemTrayIcon::Warning);
     });
@@ -540,6 +548,128 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
                                   : (kind == QStringLiteral("hls")
                                       ? QStringLiteral("HLS download started")
                                       : QStringLiteral("Stream download started"))));
+}
+
+void MainWindow::chooseVideoFormat(const QString &url, bool youtube, const QString &kind) {
+    if (ytDlpProcess_) {
+        statusLabel_->setText(QStringLiteral("A stream download is already running"));
+        return;
+    }
+
+    const QString executable = ytDlpManager_->executablePath();
+    if (executable.isEmpty()) {
+        startYtDlpDownload(url, youtube, kind, false);
+        return;
+    }
+
+    auto *probe = new QProcess(this);
+    probe->setProgram(executable);
+    probe->setArguments({
+        QStringLiteral("--dump-single-json"),
+        QStringLiteral("--no-playlist"),
+        QStringLiteral("--skip-download"),
+        url
+    });
+    const QString toolsDir = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("tools"));
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("PATH"), toolsDir + QStringLiteral(";") + env.value(QStringLiteral("PATH")));
+    probe->setProcessEnvironment(env);
+    probe->setProcessChannelMode(QProcess::MergedChannels);
+
+    connect(probe, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
+            [this, probe, url, youtube, kind](int code, QProcess::ExitStatus state) {
+        const QByteArray raw = probe->readAll();
+        const bool ok = state == QProcess::NormalExit && code == 0;
+        probe->deleteLater();
+
+        if (!ok) {
+            statusLabel_->setText(QStringLiteral("Could not inspect available video formats"));
+            startYtDlpDownload(url, youtube, kind, false);
+            return;
+        }
+
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(raw, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            statusLabel_->setText(QStringLiteral("Could not parse video formats"));
+            startYtDlpDownload(url, youtube, kind, false);
+            return;
+        }
+
+        const QJsonObject root = doc.object();
+        const QString titleText = root.value(QStringLiteral("title")).toString();
+        struct Choice { QString label; QString selector; int height; };
+        QList<Choice> choices;
+        QSet<QString> selectors;
+        choices.push_back({QStringLiteral("Best available quality"), QStringLiteral("bestvideo*+bestaudio/best"), INT_MAX});
+        selectors.insert(choices.first().selector);
+
+        const QJsonArray formats = root.value(QStringLiteral("formats")).toArray();
+        for (const auto &value : formats) {
+            const QJsonObject f = value.toObject();
+            const QString id = f.value(QStringLiteral("format_id")).toString();
+            const QString vcodec = f.value(QStringLiteral("vcodec")).toString();
+            if (id.isEmpty() || vcodec.isEmpty() || vcodec == QStringLiteral("none")) continue;
+            const int height = f.value(QStringLiteral("height")).toInt(0);
+            if (height <= 0) continue;
+            const QString ext = f.value(QStringLiteral("ext")).toString();
+            const QString resolution = f.value(QStringLiteral("resolution")).toString(
+                height > 0 ? QStringLiteral("%1p").arg(height) : QStringLiteral("video"));
+            const double fps = f.value(QStringLiteral("fps")).toDouble(0);
+            const QString acodec = f.value(QStringLiteral("acodec")).toString();
+            const qint64 bytes = f.value(QStringLiteral("filesize")).toVariant().toLongLong();
+            const qint64 approx = f.value(QStringLiteral("filesize_approx")).toVariant().toLongLong();
+            const qint64 displayBytes = bytes > 0 ? bytes : approx;
+            QString label = QStringLiteral("%1  •  %2").arg(resolution, ext.isEmpty() ? QStringLiteral("format") : ext);
+            if (fps > 0) label += QStringLiteral("  •  %1 fps").arg(fps, 0, 'f', fps == static_cast<int>(fps) ? 0 : 1);
+            if (displayBytes > 0) label += QStringLiteral("  •  %1").arg(formatBytes(displayBytes));
+            if (!acodec.isEmpty() && acodec != QStringLiteral("none")) label += QStringLiteral("  •  audio");
+            const QString selector = acodec.isEmpty() || acodec == QStringLiteral("none")
+                ? id + QStringLiteral("+bestaudio/best") : id;
+            if (selectors.contains(selector)) continue;
+            selectors.insert(selector);
+            choices.push_back({label, selector, height});
+        }
+
+        std::sort(choices.begin() + 1, choices.end(), [](const Choice &a, const Choice &b) {
+            if (a.height != b.height) return a.height > b.height;
+            return a.label < b.label;
+        });
+
+        QDialog dialog(this);
+        dialog.setWindowTitle(QStringLiteral("Choose video quality"));
+        dialog.resize(620, 520);
+        auto *layout = new QVBoxLayout(&dialog);
+        auto *heading = new QLabel(titleText.isEmpty() ? QStringLiteral("Video download") : titleText, &dialog);
+        heading->setWordWrap(true);
+        heading->setStyleSheet(QStringLiteral("font-size:16px;font-weight:700;"));
+        layout->addWidget(heading);
+        auto *list = new QListWidget(&dialog);
+        for (const auto &choice : choices) {
+            auto *item = new QListWidgetItem(choice.label, list);
+            item->setData(Qt::UserRole, choice.selector);
+        }
+        list->setCurrentRow(0);
+        layout->addWidget(list, 1);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        layout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        connect(list, &QListWidget::itemDoubleClicked, &dialog, [&dialog](QListWidgetItem *) {
+            dialog.accept();
+        });
+
+        if (dialog.exec() != QDialog::Accepted || !list->currentItem()) return;
+        ytDlpFormat_ = list->currentItem()->data(Qt::UserRole).toString();
+        startYtDlpDownload(url, youtube, kind, false);
+    });
+    connect(probe, &QProcess::errorOccurred, this, [this, probe, url, youtube, kind](QProcess::ProcessError) {
+        probe->deleteLater();
+        statusLabel_->setText(QStringLiteral("Video format inspection failed"));
+        startYtDlpDownload(url, youtube, kind, false);
+    });
+    probe->start();
+    statusLabel_->setText(QStringLiteral("Inspecting available video formats…"));
 }
 
 void MainWindow::handleBrowserCapture(const QString &url, const QString &title, const QString &kind) {
@@ -555,9 +685,12 @@ void MainWindow::handleBrowserCapture(const QString &url, const QString &title, 
 
     if (youtube || hls || kind == QStringLiteral("youtube") || kind == QStringLiteral("hls") ||
         kind == QStringLiteral("video") || kind == QStringLiteral("audio")) {
-        startYtDlpDownload(url, youtube || kind == QStringLiteral("youtube"),
-                           hls || kind == QStringLiteral("hls") ? QStringLiteral("hls") : kind,
-                           kind == QStringLiteral("audio"));
+        const QString streamKind = hls || kind == QStringLiteral("hls") ? QStringLiteral("hls") : kind;
+        if (kind == QStringLiteral("audio")) {
+            startYtDlpDownload(url, youtube || kind == QStringLiteral("youtube"), streamKind, true);
+        } else {
+            chooseVideoFormat(url, youtube || kind == QStringLiteral("youtube"), streamKind);
+        }
         return;
     }
 
