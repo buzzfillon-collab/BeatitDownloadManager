@@ -14,6 +14,7 @@ public:
     void setSegments(int count);
     void setBandwidthLimit(qint64 bytesPerSecond);
     void setExpectedSha256(const QString &sha256);
+    void setProxy(const QString &host, int port, int type);
     bool isCancelRequested() const noexcept;
     qint64 bandwidthLimit() const noexcept { return bandwidthLimit_.load(); }
     int segmentCount() const noexcept { return segmentCount_.load(); }
@@ -36,4 +37,7 @@ private:
     std::atomic_int segmentCount_{4};
     std::atomic<qint64> bandwidthLimit_{0};
     QString expectedSha256_;
+    QString proxyHost_;
+    int proxyPort_ = 0;
+    int proxyType_ = 0;
 };
