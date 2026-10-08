@@ -43,6 +43,15 @@ size_t writeCallback(char *ptr,size_t size,size_t nmemb,void *userdata) {
 int progressCallback(void *clientp,curl_off_t,curl_off_t,curl_off_t,curl_off_t) {
     return static_cast<CurlContext*>(clientp)->owner->isCancelRequested()?1:0;
 }
+void applyProxy(CURL *curl, const HttpDownloader *owner) {
+    if (!owner || owner->proxyType() == 0 || owner->proxyHost().isEmpty()) return;
+    curl_easy_setopt(curl, CURLOPT_PROXY, owner->proxyHost().toUtf8().constData());
+    if (owner->proxyPort() > 0)
+        curl_easy_setopt(curl, CURLOPT_PROXYPORT, static_cast<long>(owner->proxyPort()));
+    curl_easy_setopt(curl, CURLOPT_PROXYTYPE,
+                     owner->proxyType() == 2 ? CURLPROXY_SOCKS5_HOSTNAME : CURLPROXY_HTTP);
+}
+
 struct HeaderContext { qint64 contentRangeTotal=-1; bool acceptsRanges=false; };
 size_t headerCallback(char *buffer,size_t size,size_t nitems,void *userdata) {
     auto *ctx=static_cast<HeaderContext*>(userdata);
@@ -127,6 +136,7 @@ SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QStrin
     SegmentContext ctx{owner,&file,last-first+1,0,first,aggregate,lastReportBytes,lastReportMs};
     const QByteArray range=QStringLiteral("%1-%2").arg(first).arg(last).toUtf8();
     curl_easy_setopt(curl,CURLOPT_URL,url.toUtf8().constData());
+    applyProxy(curl, owner);
     curl_easy_setopt(curl,CURLOPT_RANGE,range.constData());
     curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,1L);
     curl_easy_setopt(curl,CURLOPT_MAXREDIRS,10L);
@@ -157,6 +167,14 @@ SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QStrin
 void HttpDownloader::setSegments(int count) { segmentCount_=qBound(1,count,8); }
 void HttpDownloader::setBandwidthLimit(qint64 bytesPerSecond) { bandwidthLimit_=qMax<qint64>(0, bytesPerSecond); }
 void HttpDownloader::setExpectedSha256(const QString &sha256) { expectedSha256_=sha256.trimmed().toLower(); }
+void HttpDownloader::setProxy(const QString &host, int port, int type) {
+    proxyHost_ = host.trimmed();
+    proxyPort_ = qBound(0, port, 65535);
+    proxyType_ = qBound(0, type, 2);
+}
+int HttpDownloader::proxyPort() const noexcept { return proxyPort_; }
+int HttpDownloader::proxyType() const noexcept { return proxyType_; }
+const QString &HttpDownloader::proxyHost() const noexcept { return proxyHost_; }
 bool HttpDownloader::verifySha256(const QString &path, const QString &expected, QString *actual) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly)) return false;
@@ -178,6 +196,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
     auto probe=[&](qint64 &total,bool &ranges)->bool{
         CURL *curl=curl_easy_init(); if(!curl)return false;
         curl_easy_setopt(curl,CURLOPT_URL,url.toUtf8().constData());
+        applyProxy(curl, this);
         curl_easy_setopt(curl,CURLOPT_NOBODY,1L);
         curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,1L);
         curl_easy_setopt(curl,CURLOPT_MAXREDIRS,10L);
@@ -361,6 +380,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         if(!file.open(resume?(QIODevice::WriteOnly|QIODevice::Append):(QIODevice::WriteOnly|QIODevice::Truncate))){curl_easy_cleanup(curl);return CURLE_WRITE_ERROR;}
         CurlContext ctx{this,&file,0,total,offset};
         curl_easy_setopt(curl,CURLOPT_URL,url.toUtf8().constData());
+        applyProxy(curl, this);
         curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,1L);curl_easy_setopt(curl,CURLOPT_MAXREDIRS,10L);
         curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,20L);curl_easy_setopt(curl,CURLOPT_LOW_SPEED_LIMIT,1L);curl_easy_setopt(curl,CURLOPT_LOW_SPEED_TIME,60L);
         curl_easy_setopt(curl,CURLOPT_USERAGENT,"BeatitDownloadManager/0.1 beta");curl_easy_setopt(curl,CURLOPT_NOSIGNAL,1L);
