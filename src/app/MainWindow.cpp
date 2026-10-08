@@ -526,7 +526,8 @@ void MainWindow::handleBrowserCapture(const QString &url, const QString &title, 
                          host == QStringLiteral("youtu.be");
     const bool hls = path.contains(QStringLiteral(".m3u8"));
 
-    if (youtube || hls || kind == QStringLiteral("youtube") || kind == QStringLiteral("hls")) {
+    if (youtube || hls || kind == QStringLiteral("youtube") || kind == QStringLiteral("hls") ||
+        kind == QStringLiteral("video") || kind == QStringLiteral("audio")) {
         startYtDlpDownload(url, youtube || kind == QStringLiteral("youtube"),
                            hls || kind == QStringLiteral("hls") ? QStringLiteral("hls") : kind,
                            kind == QStringLiteral("audio"));
