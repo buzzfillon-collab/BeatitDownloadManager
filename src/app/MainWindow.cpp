@@ -46,6 +46,7 @@
 #include <QTimeEdit>
 #include <QTabWidget>
 #include <QCalendarWidget>
+#include <QTimer>
 
 namespace {
 QString formatBytes(qint64 b){if(b<1024)return QStringLiteral("%1 B").arg(b);double v=b;const QStringList u{"KB","MB","GB","TB"};int i=-1;do{v/=1024.0;++i;}while(v>=1024.0&&i+1<u.size());return QStringLiteral("%1 %2").arg(v,0,'f',v>=100?0:1).arg(u[i]);}
@@ -223,6 +224,8 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     connect(removeButton_,&QPushButton::clicked,this,&MainWindow::removeSelected);
     connect(openButton_,&QPushButton::clicked,this,&MainWindow::openSelected);
     connect(recheckButton_,&QPushButton::clicked,this,&MainWindow::recheckSelected);
+    connect(downloadsTable_, &QTableWidget::cellDoubleClicked, this,
+            [this](int, int) { showSelectedDetails(); });
     connect(downloadsTable_, &QTableWidget::customContextMenuRequested, this, [this](const QPoint &pos) {
         const int row = downloadsTable_->rowAt(pos.y());
         if (row < 0) return;
@@ -257,6 +260,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
             menu.addAction(QStringLiteral("Cancel"), this, &MainWindow::cancelSelected);
         menu.addAction(QStringLiteral("Remove from history…"), this, &MainWindow::removeSelected);
         menu.addSeparator();
+        menu.addAction(QStringLiteral("Download details…"), this, &MainWindow::showSelectedDetails);
         menu.addAction(QStringLiteral("Open"), this, &MainWindow::openSelected);
         menu.exec(downloadsTable_->viewport()->mapToGlobal(pos));
     });
@@ -282,15 +286,26 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         downloadsTable_->setItem(row,1,new QTableWidgetItem(status));setProgress(downloadsTable_,row,total>0?static_cast<int>(done*100/total):0,false);
         downloadsTable_->setItem(row,3,new QTableWidgetItem("—"));downloadsTable_->setItem(row,4,new QTableWidgetItem(url));
         const auto ts=updatedAt>0?updatedAt:QDateTime::currentSecsSinceEpoch(); auto *date=new QTableWidgetItem(QDateTime::fromSecsSinceEpoch(ts).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))); date->setData(Qt::UserRole,ts); downloadsTable_->setItem(row,5,date);
+        downloadedBytes_[id] = done;
+        totalBytes_[id] = total;
+        currentDownloadSpeed_[id] = 0;
+        currentUploadSpeed_[id] = 0;
+        startedAt_[id] = QDateTime::currentSecsSinceEpoch();
         accentRow(downloadsTable_, row, false);
     });
     connect(downloadManager_,&DownloadManager::taskStarted,this,[this](const QString&id,const QString&f,qint64 total){
         const int row=rowForId(id);if(row<0)return;downloadsTable_->item(row,0)->setText(f);
         downloadsTable_->item(row,1)->setText("Downloading");downloadsTable_->item(row,2)->setText(total>0?"0%":"Live");
+        totalBytes_[id] = total;
+        startedAt_[id] = QDateTime::currentSecsSinceEpoch();
     });
     connect(downloadManager_,&DownloadManager::taskProgress,this,[this](const QString&id,qint64 done,qint64 total,qint64 speed){
         const int row=rowForId(id);if(row<0)return;
         setProgress(downloadsTable_,row,total>0?static_cast<int>(done*100/total):0,false);
+        downloadedBytes_[id] = done;
+        totalBytes_[id] = total;
+        currentDownloadSpeed_[id] = speed;
+        if (!startedAt_.contains(id)) startedAt_[id] = QDateTime::currentSecsSinceEpoch();
         downloadsTable_->item(row,3)->setText(formatSpeed(speed));statusLabel_->setText(QStringLiteral("%1 downloaded").arg(formatBytes(done)));
         accentRow(downloadsTable_, row, false);
     });
@@ -313,7 +328,13 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         downloadsTable_->setItem(row,4,new QTableWidgetItem(source.isEmpty()?QStringLiteral("BitTorrent"):source));
         const auto ts=updatedAt>0?updatedAt:QDateTime::currentSecsSinceEpoch();
         auto*date=new QTableWidgetItem(QDateTime::fromSecsSinceEpoch(ts).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));date->setData(Qt::UserRole,ts);
-        downloadsTable_->setItem(row,5,date);accentRow(downloadsTable_,row,true);
+        downloadsTable_->setItem(row,5,date);
+        downloadedBytes_[id] = done;
+        totalBytes_[id] = total;
+        currentDownloadSpeed_[id] = 0;
+        currentUploadSpeed_[id] = 0;
+        startedAt_[id] = QDateTime::currentSecsSinceEpoch();
+        accentRow(downloadsTable_,row,true);
     });
 
     connect(torrentEngine_,&TorrentEngine::torrentRemoved,this,[this](const QString&id){
@@ -333,9 +354,14 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         downloadsTable_->setItem(row,3,new QTableWidgetItem("—"));downloadsTable_->setItem(row,4,new QTableWidgetItem("BitTorrent"));
         auto *date=new QTableWidgetItem(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))); date->setData(Qt::UserRole,QDateTime::currentSecsSinceEpoch()); downloadsTable_->setItem(row,5,date);accentRow(downloadsTable_,row,true);
     });
-    connect(torrentEngine_,&TorrentEngine::torrentProgress,this,[this](const QString&id,int progress,qint64 done,qint64,qint64 down,qint64,int peers){
+    connect(torrentEngine_,&TorrentEngine::torrentProgress,this,[this](const QString&id,int progress,qint64 done,qint64 total,qint64 down,qint64 up,int peers){
         const int row=rowForId(id);if(row<0)return;downloadsTable_->item(row,1)->setText(QStringLiteral("Torrent • %1 peers").arg(peers));
         setProgress(downloadsTable_,row,progress,true);downloadsTable_->item(row,3)->setText(formatSpeed(down));
+        downloadedBytes_[id] = done;
+        totalBytes_[id] = total;
+        currentDownloadSpeed_[id] = down;
+        currentUploadSpeed_[id] = up;
+        if (!startedAt_.contains(id)) startedAt_[id] = QDateTime::currentSecsSinceEpoch();
         statusLabel_->setText(QStringLiteral("%1 downloaded").arg(formatBytes(done)));
     });
     connect(torrentEngine_,&TorrentEngine::torrentCompleted,this,[this](const QString&id){
@@ -540,6 +566,97 @@ void MainWindow::handleBrowserCapture(const QString &url, const QString &title, 
         downloadManager_->addUrl(url, QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
         statusLabel_->setText(QStringLiteral("Browser download queued"));
     }
+}
+
+void MainWindow::showSelectedDetails(){
+    const QString id = selectedId();
+    if (id.isEmpty()) return;
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Download details"));
+    dialog.resize(560, 390);
+    auto *root = new QVBoxLayout(&dialog);
+    auto *title = new QLabel(&dialog);
+    title->setStyleSheet(QStringLiteral("font-size:18px;font-weight:700;"));
+    title->setWordWrap(true);
+    root->addWidget(title);
+
+    auto *form = new QFormLayout();
+    auto *status = new QLabel(&dialog);
+    auto *size = new QLabel(&dialog);
+    auto *location = new QLabel(&dialog);
+    auto *down = new QLabel(&dialog);
+    auto *avg = new QLabel(&dialog);
+    auto *up = new QLabel(&dialog);
+    auto *eta = new QLabel(&dialog);
+    auto *source = new QLabel(&dialog);
+    source->setWordWrap(true);
+    form->addRow(QStringLiteral("Status"), status);
+    form->addRow(QStringLiteral("Size"), size);
+    form->addRow(QStringLiteral("Location"), location);
+    form->addRow(QStringLiteral("Current download"), down);
+    form->addRow(QStringLiteral("Average download"), avg);
+    form->addRow(QStringLiteral("Current upload"), up);
+    form->addRow(QStringLiteral("ETA"), eta);
+    form->addRow(QStringLiteral("Source"), source);
+    root->addLayout(form);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    root->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+
+    const bool torrent = id.startsWith(QStringLiteral("torrent-"));
+    QTimer timer(&dialog);
+    auto refresh = [this, id, torrent, title, status, size, location, down, avg, up, eta, source]() {
+        const int row = rowForId(id);
+        if (row < 0) return;
+        const QString name = downloadsTable_->item(row, 0) ? downloadsTable_->item(row, 0)->text()
+                                                            : QStringLiteral("Download");
+        const QString st = downloadsTable_->item(row, 1) ? downloadsTable_->item(row, 1)->text()
+                                                          : QStringLiteral("Unknown");
+        const qint64 done = downloadedBytes_.value(id, 0);
+        const qint64 total = totalBytes_.value(id, 0);
+        const qint64 now = QDateTime::currentSecsSinceEpoch();
+        const qint64 elapsed = qMax<qint64>(1, now - startedAt_.value(id, now));
+        const qint64 average = done > 0 ? done / elapsed : 0;
+        const qint64 current = currentDownloadSpeed_.value(id, 0);
+        const qint64 upload = currentUploadSpeed_.value(id, 0);
+
+        title->setText(name);
+        status->setText(st);
+        size->setText(total > 0 ? QStringLiteral("%1 / %2").arg(formatBytes(done), formatBytes(total))
+                                : formatBytes(done));
+        QString path;
+        if (torrent) {
+            path = torrentEngine_->torrentSavePath(id);
+        } else if (paths_.contains(id)) {
+            path = paths_.value(id);
+        } else {
+            path = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        }
+        location->setText(path.isEmpty() ? QStringLiteral("Unavailable") : QDir::toNativeSeparators(path));
+        down->setText(formatSpeed(current));
+        avg->setText(formatSpeed(average));
+        up->setText(torrent ? formatSpeed(upload) : QStringLiteral("N/A"));
+        source->setText(downloadsTable_->item(row, 4) ? downloadsTable_->item(row, 4)->text()
+                                                       : QStringLiteral("—"));
+
+        if (total > 0 && current > 0 && total > done) {
+            const qint64 seconds = (total - done) / current;
+            eta->setText(seconds >= 86400
+                ? QStringLiteral("%1d %2h").arg(seconds / 86400).arg((seconds / 3600) % 24)
+                : seconds >= 3600
+                    ? QStringLiteral("%1h %2m").arg(seconds / 3600).arg((seconds / 60) % 60)
+                    : QStringLiteral("%1m %2s").arg(seconds / 60).arg(seconds % 60));
+        } else {
+            eta->setText(total > 0 && done >= total ? QStringLiteral("Complete") : QStringLiteral("—"));
+        }
+    };
+    refresh();
+    connect(&timer, &QTimer::timeout, &dialog, refresh);
+    timer.start(500);
+    dialog.exec();
 }
 
 void MainWindow::setupTray(){trayIcon_->setIcon(windowIcon());trayIcon_->setToolTip("Beatit Download Manager");trayMenu_->addAction("Show Beatit",this,&MainWindow::showFromTray);trayMenu_->addSeparator();trayMenu_->addAction("Exit",this,&MainWindow::exitFromTray);trayIcon_->setContextMenu(trayMenu_);connect(trayIcon_,&QSystemTrayIcon::activated,this,[this](QSystemTrayIcon::ActivationReason r){if(r==QSystemTrayIcon::DoubleClick||r==QSystemTrayIcon::Trigger)showFromTray();});trayIcon_->show();}
