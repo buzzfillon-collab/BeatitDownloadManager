@@ -407,7 +407,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
 
     ytDlpManager_->updateIfDue();
 }
-void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QString &kind) {
+void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QString &kind, bool audioOnly) {
     if (ytDlpProcess_) {
         statusLabel_->setText(QStringLiteral("A stream download is already running"));
         return;
@@ -431,6 +431,11 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
         QStringLiteral("--no-playlist"), QStringLiteral("--newline"),
         QStringLiteral("-o"), output
     };
+    if (audioOnly) {
+        ytDlpPendingArgs_ << QStringLiteral("-x")
+                          << QStringLiteral("--audio-format") << QStringLiteral("mp3")
+                          << QStringLiteral("--audio-quality") << QStringLiteral("0");
+    }
     if (youtube || kind == QStringLiteral("hls"))
         ytDlpPendingArgs_ << QStringLiteral("--merge-output-format") << QStringLiteral("mp4");
     ytDlpPendingArgs_ << url;
@@ -447,7 +452,7 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
     ytDlpProcess_->setProcessEnvironment(env);
 
     connect(ytDlpProcess_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
-            this, [this, youtube](int exitCode, QProcess::ExitStatus exitStatus) {
+            this, [this, youtube, audioOnly](int exitCode, QProcess::ExitStatus exitStatus) {
         const QString output = QString::fromLocal8Bit(ytDlpProcess_->readAll()).trimmed();
         const bool success = exitStatus == QProcess::NormalExit && exitCode == 0;
 
@@ -458,8 +463,9 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
             ytDlpRetryAfterUpdate_ = false;
             statusLabel_->setText(QStringLiteral("Stream download completed"));
             trayIcon_->showMessage(QStringLiteral("Beatit"),
-                                   youtube ? QStringLiteral("YouTube download complete")
-                                           : QStringLiteral("Stream download complete"));
+                                   audioOnly ? QStringLiteral("MP3 download complete")
+                                   : (youtube ? QStringLiteral("YouTube download complete")
+                                              : QStringLiteral("Stream download complete")));
             return;
         }
 
@@ -502,10 +508,11 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
     });
 
     ytDlpProcess_->start();
-    statusLabel_->setText(youtube ? QStringLiteral("YouTube download started")
+    statusLabel_->setText(audioOnly ? QStringLiteral("MP3 conversion started")
+                                  : (youtube ? QStringLiteral("YouTube download started")
                                   : (kind == QStringLiteral("hls")
                                       ? QStringLiteral("HLS download started")
-                                      : QStringLiteral("Stream download started")));
+                                      : QStringLiteral("Stream download started"))));
 }
 
 void MainWindow::handleBrowserCapture(const QString &url, const QString &title, const QString &kind) {
@@ -521,7 +528,8 @@ void MainWindow::handleBrowserCapture(const QString &url, const QString &title, 
 
     if (youtube || hls || kind == QStringLiteral("youtube") || kind == QStringLiteral("hls")) {
         startYtDlpDownload(url, youtube || kind == QStringLiteral("youtube"),
-                           hls || kind == QStringLiteral("hls") ? QStringLiteral("hls") : kind);
+                           hls || kind == QStringLiteral("hls") ? QStringLiteral("hls") : kind,
+                           kind == QStringLiteral("audio"));
         return;
     }
 
