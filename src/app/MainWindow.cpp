@@ -201,7 +201,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
                 const bool youtube = ytDlpPendingKind_ == QStringLiteral("youtube");
                 const QString url = ytDlpPendingUrl_;
                 const QString kind = ytDlpPendingKind_;
-                startYtDlpDownload(url, youtube, kind);
+                startYtDlpDownload(url, youtube, kind, ytDlpPendingAudioOnly_);
             } else {
                 ytDlpRetryAfterUpdate_ = false;
                 statusLabel_->setText(QStringLiteral("yt-dlp update failed: %1").arg(message));
@@ -427,6 +427,7 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
 
     ytDlpPendingUrl_ = url;
     ytDlpPendingKind_ = kind;
+    ytDlpPendingAudioOnly_ = audioOnly;
     ytDlpPendingArgs_ = {
         QStringLiteral("--no-playlist"), QStringLiteral("--newline"),
         QStringLiteral("-o"), output
