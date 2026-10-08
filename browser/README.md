@@ -32,3 +32,13 @@ Double-clicking BeatitBrowserHost.exe is not a test: it is a native-messaging pr
 Browser extension -> native messaging -> BeatitBrowserHost.exe -> local Qt IPC -> running Beatit -> HTTP engine or yt-dlp.
 
 HLS and YouTube are routed through the external yt-dlp backend. Portable builds bundle yt-dlp.exe (nightly by default), ffmpeg.exe, ffprobe.exe, and Deno for YouTube JavaScript extraction. Beatit checks yt-dlp once per day and can switch between nightly and stable. If extraction fails, it updates yt-dlp and retries the download once. Direct media URLs use Beatit's HTTP engine.
+
+
+### In-page video controls
+
+The extension injects a small **↓ Download** control on HTML5 video players. It also provides **♫ MP3** to extract audio through the bundled yt-dlp + FFmpeg toolchain.
+
+- YouTube pages are sent to yt-dlp using the page URL.
+- Generic HTML5 videos are sent using the media URL when available, otherwise the page URL.
+- HLS/media captures continue to use the existing native-messaging path.
+- The browser UI never performs the media extraction itself; Beatit owns the download/conversion process.
