@@ -46,5 +46,6 @@ private:
     QString ytDlpPendingUrl_;
     QString ytDlpPendingKind_;
     bool ytDlpRetryAfterUpdate_ = false;
+    bool ytDlpPendingAudioOnly_ = false;
     QHash<QString, QString> paths_; QHash<QString, int> rows_; bool reallyQuit_ = false;
 };
