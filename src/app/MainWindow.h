@@ -26,7 +26,7 @@ private slots:
     void showFromTray();
     void exitFromTray();
     void handleBrowserCapture(const QString &url, const QString &title, const QString &kind);
-    void startYtDlpDownload(const QString &url, bool youtube, const QString &kind);
+    void startYtDlpDownload(const QString &url, bool youtube, const QString &kind, bool audioOnly = false);
     void filterDownloads(const QString &filter);
     void configureChecksumSelected();
 private:
