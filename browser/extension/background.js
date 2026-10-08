@@ -2,6 +2,16 @@ const HOST = "com.beatit.download_manager";
 function send(payload) {
   return chrome.runtime.sendNativeMessage(HOST, payload).catch(() => null);
 }
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || message.action !== "download-media" || !message.pageUrl) return;
+  send({
+    url: message.mediaUrl || message.pageUrl,
+    pageUrl: message.pageUrl,
+    title: message.title || sender.tab?.title || "",
+    kind: message.mode === "mp3" ? "audio" : "video"
+  }).then(sendResponse);
+  return true;
+});
 function classify(url) {
   const u = new URL(url);
   const lower = u.pathname.toLowerCase();
