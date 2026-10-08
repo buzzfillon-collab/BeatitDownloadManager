@@ -3,10 +3,36 @@
   "name": "Beatit Download Manager",
   "version": "0.1.0",
   "description": "Send browser downloads and non-DRM media streams to Beatit.",
-  "permissions": ["nativeMessaging", "webRequest", "tabs", "downloads"],
-  "host_permissions": ["<all_urls>"],
-  "background": {"service_worker": "background.js"},
-  "action": {"default_title": "Download with Beatit"},
+  "permissions": [
+    "nativeMessaging",
+    "webRequest",
+    "tabs",
+    "downloads"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Download with Beatit"
+  },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1ASaAjhSMVLo8pIpglfizBYrKrZPYpzufdY0buw1UxByQL8fTJSf4Sf+0EfYVL8o+hR+sgxqGbDQ8eniDXzdH2S/lMnzCFX7ddNGeqJg8ynvETNuUH30bFa9wwR8UJ60FoVmuSppeV4QS2Awgp3EXzcsSH4JGL6bEe4PXphIzqWnP15fWMeNTtu2d9D4DIL5gmcGkcsJacKwayLJ4n+NgBHamNUuUqY8n/X2Y0q9JC11FVTHdgRwe10a4ujRsNLL7mgSnq4zAdv2V5Lp5fvFhFaBAYAgR4ciU4nvfs62WdtEmpTV6P1Xk08IDiiedLvMA6bkvrFWTQmlizmmDx6IYwIDAQAB",
-  "browser_specific_settings": {"gecko": {"id": "beatit@example.org"}}
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "beatit@example.org"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
 }
