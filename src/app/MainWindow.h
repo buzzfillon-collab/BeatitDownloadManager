@@ -29,6 +29,7 @@ private slots:
     void startYtDlpDownload(const QString &url, bool youtube, const QString &kind, bool audioOnly = false);
     void filterDownloads(const QString &filter);
     void configureChecksumSelected();
+    void showSelectedDetails();
 private:
     int selectedRow() const;
     QString selectedId() const;
@@ -47,5 +48,11 @@ private:
     QString ytDlpPendingKind_;
     bool ytDlpRetryAfterUpdate_ = false;
     bool ytDlpPendingAudioOnly_ = false;
-    QHash<QString, QString> paths_; QHash<QString, int> rows_; bool reallyQuit_ = false;
+    QHash<QString, QString> paths_; QHash<QString, int> rows_;
+    QHash<QString, qint64> currentDownloadSpeed_;
+    QHash<QString, qint64> currentUploadSpeed_;
+    QHash<QString, qint64> downloadedBytes_;
+    QHash<QString, qint64> totalBytes_;
+    QHash<QString, qint64> startedAt_;
+    bool reallyQuit_ = false;
 };
