@@ -22,6 +22,7 @@ public:
     void setMaxActive(int count);
     void setHttpConnections(int count);
     void setBandwidthLimit(qint64 bytesPerSecond);
+    void setProxy(const QString &host, int port, int type);
     qint64 bandwidthLimit() const noexcept { return bandwidthLimit_; }
     void setSchedulerAllowed(bool allowed);
     bool setExpectedSha256(const QString &id, const QString &sha256);
@@ -58,6 +59,9 @@ private:
     int maxActive_ = 3;
     int httpConnections_ = 8;
     qint64 bandwidthLimit_ = 0;
+    QString proxyHost_;
+    int proxyPort_ = 0;
+    int proxyType_ = 0;
     bool schedulerAllowed_ = true;
     QHash<QString, bool> schedulerPaused_;
     QHash<QString, ActiveTask> active_;
