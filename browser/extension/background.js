@@ -43,7 +43,7 @@ function classify(rawUrl, mime = "", resourceType = "") {
   const type = String(mime).split(";")[0].trim().toLowerCase();
   if (type === "application/vnd.apple.mpegurl" || type === "application/x-mpegurl") return "hls";
   if (type === "application/dash+xml") return "dash";
-  if (/^(video|audio)\//.test(type) && resourceType === "media") return "media";
+  if (/^(video|audio)\//.test(type)) return "media";
   return "page";
 }
 function fileExtension(url, filename = "") {
