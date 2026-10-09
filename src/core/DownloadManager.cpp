@@ -230,8 +230,12 @@ bool DownloadManager::updateProperties(const PersistedDownload &properties) {
         }
         if (!found) return false;
     }
+    const QUrl sourceUrl(properties.source.trimmed());
+    if (!sourceUrl.isValid() || (sourceUrl.scheme() != QStringLiteral("http") &&
+        sourceUrl.scheme() != QStringLiteral("https"))) return false;
     if (active_.contains(properties.id)) {
-        if (properties.destination != updated.destination || properties.filename != updated.filename) return false;
+        if (properties.source != updated.source || properties.destination != updated.destination ||
+            properties.filename != updated.filename) return false;
     } else {
         const QString filename = QFileInfo(properties.filename.trimmed()).fileName();
         if (filename.isEmpty() || filename == QStringLiteral(".") || filename == QStringLiteral("..") ||
@@ -274,6 +278,7 @@ bool DownloadManager::updateProperties(const PersistedDownload &properties) {
         updated.filename = filename;
         updated.destination = newDestination;
     }
+    updated.source = properties.source.trimmed();
     updated.category = properties.category.trimmed().isEmpty() ? QStringLiteral("Other") : properties.category.trimmed();
     updated.description = properties.description.trimmed();
     updated.connectionCount = qBound(1, properties.connectionCount, 8);
