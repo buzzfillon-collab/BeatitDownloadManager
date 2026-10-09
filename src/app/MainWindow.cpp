@@ -1304,7 +1304,6 @@ void MainWindow::previewRemoteZip(const QString &url) {
         const QByteArray data=tail->readAll();
         const int status=tail->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QString range=QString::fromLatin1(tail->rawHeader("Content-Range"));
-        const QString error=tail->errorString();
         tail->deleteLater();
         if(status!=206 || data.size()>2*1024*1024) {fail(QStringLiteral("The server did not honor a bounded HTTP Range request. No full ZIP download was started."));return;}
         static const QRegularExpression contentRange(QStringLiteral(R"re(^bytes\s+(\d+)-(\d+)/(\d+)$)re"),QRegularExpression::CaseInsensitiveOption);
@@ -1323,8 +1322,6 @@ void MainWindow::previewRemoteZip(const QString &url) {
         const quint32 cdOffset=qFromLittleEndian<quint32>(e+16);
         if(entries==0xffff || cdSize==0xffffffffu || cdOffset==0xffffffffu) {fail(QStringLiteral("ZIP64 archives are not supported by the remote preview yet."));return;}
         if(entries>50000 || cdSize>16*1024*1024 || quint64(cdOffset)+cdSize>totalSize || cdSize==0) {fail(QStringLiteral("The archive directory exceeds the safe preview limits or is malformed."));return;}
-        const quint64 tailStart=rangeStart;
-        if(quint64(eocd)+rangeStart<tailStart) {fail(QStringLiteral("Invalid ZIP offsets."));return;}
         QNetworkRequest directoryRequest(parsed);
         directoryRequest.setRawHeader("User-Agent","BeatitDownloadManager/0.1");
         directoryRequest.setRawHeader("Range",QByteArray("bytes=")+QByteArray::number(cdOffset)+"-"+QByteArray::number(quint64(cdOffset)+cdSize-1));
@@ -2142,9 +2139,9 @@ void MainWindow::runSyncChecks() {
                 QJsonObject job=current.at(i).toObject();
                 if(job.value(QStringLiteral("id")).toString()!=id)continue;
                 if(ok) {
-                    const QString validator=QStringLiteral("%1|%2|%3").arg(etag,modified).arg(size);
+                    const QString validator=(etag.isEmpty() && modified.isEmpty() && size<=0) ? QString() : QStringLiteral("%1|%2|%3").arg(etag,modified).arg(size);
                     const QString previous=job.value(QStringLiteral("lastValidator")).toString();
-                    job.insert(QStringLiteral("lastValidator"),validator);
+                    if(!validator.isEmpty()) job.insert(QStringLiteral("lastValidator"),validator);
                     if(!previous.isEmpty() && !validator.isEmpty() && previous!=validator) {
                         const QString url=job.value(QStringLiteral("url")).toString();
                         const QString category=categoryForUrl(url);const QString destination=categoryDestination(category);
