@@ -115,19 +115,19 @@ QString categoryDestination(const QString &category) {
 
 QString lightThemeOverrides() {
     return QStringLiteral(R"(
-        QMainWindow{background:#f4f6fa;color:#172033;}
-        QFrame#toolbar{background:#ffffff;border-bottom:1px solid #dce1eb;}
-        QLabel#toolbarBrand,QLabel#title{color:#172033;}
-        QLabel#subtitle,QLabel#sideTitle,QLabel#sideHint{color:#697386;}
-        QFrame#sidebar{background:#ffffff;border:1px solid #dce1eb;}
-        QPushButton{background:#ffffff;border:1px solid #d2d9e5;color:#263247;}
-        QPushButton:hover{background:#eef1f7;border-color:#b8c2d3;}
-        QLineEdit{background:#ffffff;border:1px solid #cbd3e0;color:#172033;}
-        QTableWidget{background:#ffffff;border:1px solid #dce1eb;color:#172033;}
-        QTableWidget::item{border-bottom:1px solid #e7eaf0;}
-        QTableWidget::item:selected{background:#e4ddff;color:#24184f;}
-        QHeaderView::section{background:#edf0f6;border-bottom:1px solid #dce1eb;color:#5e687b;}
-        QProgressBar{background:#e4e8f0;color:#263247;}
+        QMainWindow{background:#f3f8fb;color:#142534;}
+        QFrame#toolbar{background:#ffffff;border-bottom:1px solid #d7e6eb;}
+        QLabel#toolbarBrand,QLabel#title{color:#142534;}
+        QLabel#subtitle,QLabel#sideTitle,QLabel#sideHint{color:#607987;}
+        QFrame#sidebar{background:#ffffff;border:1px solid #d7e6eb;}
+        QPushButton{background:#ffffff;border:1px solid #c9dce3;color:#203b4a;}
+        QPushButton:hover{background:#e9f7fa;border-color:#80cdd6;}
+        QLineEdit{background:#ffffff;border:1px solid #c3d9e1;color:#142534;}
+        QTableWidget{background:#ffffff;border:1px solid #d7e6eb;color:#142534;}
+        QTableWidget::item{border-bottom:1px solid #e3edf0;}
+        QTableWidget::item:selected{background:#d9f5f4;color:#103d48;}
+        QHeaderView::section{background:#edf5f7;border-bottom:1px solid #d7e6eb;color:#58717e;}
+        QProgressBar{background:#dce9ee;color:#203b4a;}
     )");
 }
 class DownloadTable final : public QTableWidget {
@@ -153,12 +153,12 @@ void setProgress(QTableWidget *table,int row,int percent,bool torrent){
     if(!bar){bar=new QProgressBar(table);bar->setRange(0,100);bar->setTextVisible(true);table->setCellWidget(row,2,bar);}
     bar->setValue(qBound(0,percent,100));
     bar->setFormat(QStringLiteral("%1%").arg(qBound(0,percent,100)));
-    bar->setStyleSheet(QStringLiteral("QProgressBar{background:#202632;border:0;border-radius:5px;text-align:center;color:#dce3ef;min-width:130px;max-width:190px;min-height:10px;max-height:10px;font-size:9px;}QProgressBar::chunk{background:%1;border-radius:5px;}").arg(torrent?QStringLiteral("#62d89b"):QStringLiteral("#67a9ff")));
+    bar->setStyleSheet(QStringLiteral("QProgressBar{background:#1b2b3a;border:0;border-radius:6px;text-align:center;color:#dceef5;min-width:130px;max-width:190px;min-height:12px;max-height:12px;font-size:9px;}QProgressBar::chunk{background:%1;border-radius:5px;}").arg(torrent?QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #34d399,stop:0.55 #2dd4bf,stop:1 #a3e635)"):QStringLiteral("qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #22d3ee,stop:0.48 #60a5fa,stop:1 #a78bfa)")));
 }
 void accentRow(QTableWidget *table, int row, bool torrent) {
-    tintRow(table, row, QColor(torrent ? "#10271e" : "#102238"));
+    tintRow(table, row, QColor(torrent ? "#102f2d" : "#102b3a"));
     if (auto *file = table->item(row, 0))
-        file->setForeground(QColor(torrent ? "#62d89b" : "#67a9ff"));
+        file->setForeground(QColor(torrent ? "#63e6be" : "#55d6e8"));
     if (auto *status = table->item(row, 1))
         status->setForeground(QColor(torrent ? "#62d89b" : "#67a9ff"));
 }
@@ -276,28 +276,28 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     mainLayout->addLayout(body,1);setCentralWidget(root);
 
     setStyleSheet(R"(
-        QMainWindow{background:#0b0d12;color:#f5f7fb;}
-        QFrame#toolbar{background:#151820;border-bottom:1px solid #252a35;}
+        QMainWindow{background:#0a111b;color:#edf7fb;}
+        QFrame#toolbar{background:#111c2b;border-bottom:1px solid #203547;}
         QLabel#traffic{color:#ff5f57;font-size:12px;letter-spacing:2px;}
-        QLabel#toolbarBrand{font-size:15px;font-weight:700;color:#f5f7fb;}
+        QLabel#toolbarBrand{font-size:15px;font-weight:700;color:#edf7fb;}
         QLabel#title{font-size:28px;font-weight:700;color:#f5f7fb;}
-        QLabel#subtitle{font-size:13px;color:#8b92a3;}
-        QFrame#sidebar{background:#10131a;border:1px solid #202530;border-radius:14px;}
-        QLabel#logo{background:#7c5cff;color:white;border-radius:12px;font-size:22px;font-weight:800;min-width:42px;max-width:42px;min-height:42px;max-height:42px;margin-bottom:12px;}
-        QLabel#sideTitle{color:#626b7c;font-size:10px;font-weight:800;padding:6px 8px;}
+        QLabel#subtitle{font-size:13px;color:#8ba5b5;}
+        QFrame#sidebar{background:#0e1926;border:1px solid #1d3445;border-radius:14px;}
+        QLabel#logo{background:#0faeae;color:white;border-radius:12px;font-size:22px;font-weight:800;min-width:42px;max-width:42px;min-height:42px;max-height:42px;margin-bottom:12px;}
+        QLabel#sideTitle{color:#6c8798;font-size:10px;font-weight:800;padding:6px 8px;}
         QLabel#sideHint{color:#626b7c;font-size:11px;padding:8px;}
-        QPushButton#navActive{background:#27203f;color:#bdafff;border:1px solid #3b2e61;border-radius:9px;text-align:left;padding-left:8px;font-weight:700;}
-        QPushButton{background:#1a1f29;border:1px solid #2a303c;border-radius:9px;padding:9px 14px;color:#e9edf5;font-weight:600;}
-        QPushButton:hover{background:#252b37;border-color:#3a4250;}
-        QPushButton#primary{background:#7c5cff;border-color:#8d72ff;color:white;}
-        QLineEdit{background:#0f1218;border:1px solid #2b303b;border-radius:10px;padding:10px 13px;color:#f0f3f8;font-size:13px;}
-        QLineEdit:focus{border:1px solid #7c5cff;}
-        QTableWidget{background:#10141b;border:1px solid #242a35;border-radius:13px;gridline-color:transparent;color:#e6eaf2;font-size:12px;outline:0;}
-        QTableWidget::item{padding:8px;border-bottom:1px solid #1e232d;}
-        QTableWidget::item:selected{background:#29233e;color:white;}
-        QHeaderView::section{background:#171b24;border:none;border-bottom:1px solid #252b36;padding:9px;color:#7f8798;font-size:10px;font-weight:800;}
+        QPushButton#navActive{background:#123943;color:#9af0ee;border:1px solid #1d5a65;border-radius:9px;text-align:left;padding-left:8px;font-weight:700;}
+        QPushButton{background:#142232;border:1px solid #263d50;border-radius:9px;padding:9px 14px;color:#e5f2f8;font-weight:600;}
+        QPushButton:hover{background:#1c3143;border-color:#376174;}
+        QPushButton#primary{background:#0faeae;border-color:#34d4cf;color:#061b25;}
+        QLineEdit{background:#0b1521;border:1px solid #294253;border-radius:10px;padding:10px 13px;color:#edf7fb;font-size:13px;}
+        QLineEdit:focus{border:1px solid #22d3ee;}
+        QTableWidget{background:#0e1926;border:1px solid #1d3445;border-radius:13px;gridline-color:transparent;color:#e2f0f7;font-size:12px;outline:0;}
+        QTableWidget::item{padding:8px;border-bottom:1px solid #192d3c;}
+        QTableWidget::item:selected{background:#173b49;color:white;}
+        QHeaderView::section{background:#142333;border:none;border-bottom:1px solid #203547;padding:9px;color:#7f9bab;font-size:10px;font-weight:800;}
         QProgressBar{background:#202632;border:0;border-radius:5px;text-align:center;color:#dce3ef;min-width:130px;max-width:190px;min-height:10px;max-height:10px;font-size:9px;}
-        QProgressBar::chunk{background:#67a9ff;border-radius:5px;}
+        QProgressBar::chunk{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #22d3ee,stop:0.48 #60a5fa,stop:1 #a78bfa);border-radius:6px;}
     )");
     {
         QSettings appearance(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
