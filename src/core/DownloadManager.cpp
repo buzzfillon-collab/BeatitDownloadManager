@@ -11,6 +11,7 @@
 #include <QRegularExpression>
 #include <QCryptographicHash>
 #include <QSet>
+#include <QStringList>
 #include <QUuid>
 #include <algorithm>
 #include <climits>
