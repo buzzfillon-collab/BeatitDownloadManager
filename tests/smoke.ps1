@@ -31,9 +31,10 @@ if ($checksum -notmatch "QCryptographicHash|verifySha256|MAX_RECV_SPEED_LARGE") 
     throw "HTTP integrity/rate-limit implementation sanity check failed."
 }
 $mainWindow = Get-Content (Join-Path $RepoRoot "src/app/MainWindow.cpp") -Raw
-if ($mainWindow -notmatch "categories/|After download completes|completion/action") {
+if ($mainWindow -notmatch "categories/|categoryRules/|After download completes|completion/action") {
     throw "Category routing or completion-action implementation missing."
 }
+if ($mainWindow -notmatch "showSelectedProperties|showLinkExtractor|Grab links") { throw "Properties dialog or link extractor UI missing." }
 if ($mainWindow -match 'ftp://') {
     throw "FTP URL intake must remain out of scope."
 }
