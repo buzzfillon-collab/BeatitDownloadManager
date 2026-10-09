@@ -77,6 +77,25 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 - [x] Site Grabber include/exclude filters, saved projects, and scheduling
 - [ ] Browser-extension store submission and signed distribution
 
+#### Install the browser extension
+
+1. Start Beatit once so it can register the native-messaging host in the current Windows user profile.
+2. Open `chrome://extensions` (Chrome, Edge, Brave, Vivaldi, or Chromium), enable Developer mode, and choose **Load unpacked**.
+3. Select the repository's `browser/extension/` folder. For the packaged ZIP, extract it first and load the folder containing the top-level Chromium `manifest.json`.
+4. For Firefox, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select `browser/extension/firefox/manifest.json` (or the same path inside the extracted ZIP).
+5. Open the extension popup. It should show **Connected** when Beatit's native bridge is reachable.
+
+Automatic interception is enabled by default. The popup lets you disable it, toggle media discovery, change the intercepted file extensions, scan the current page, and send detected media to Beatit. Detected streams are listed for an explicit user action; merely discovering an HLS/DASH manifest does not automatically start a media download.
+
+#### Browser integration test checklist
+
+- [ ] Download a normal `.zip` or `.exe` file: Beatit should receive it and the browser copy should be cancelled only after acknowledgment.
+- [ ] Disable automatic interception in the popup and verify the browser keeps the download.
+- [ ] Open a page with a direct MP4/WebM or audio URL and verify it appears in the detected-media list.
+- [ ] Open an HLS `.m3u8` or DASH `.mpd` player and verify the manifest appears once, without flooding the list with media fragments.
+- [ ] Open a supported video-site page and use the popup or in-player Beatit button to hand it to yt-dlp.
+- [ ] Test the same flows in Chromium and Firefox separately; Windows CI validates package structure and JavaScript syntax, not live browser behavior.
+
 ### IDM-parity features not yet implemented
 - [ ] IDM-style adaptive splitting of the largest remaining range during an active transfer (existing 32-range worker scheduling is already implemented; still an outstanding throughput optimization)
 - [x] Optional clipboard URL monitoring with confirmation before enqueueing
