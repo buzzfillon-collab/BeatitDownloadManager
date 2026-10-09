@@ -25,11 +25,9 @@ BrowserBridge::BrowserBridge(QObject *parent) : QObject(parent), server_(new QLo
 bool BrowserBridge::start() {
     const QString name = QString::fromLatin1(kServerName);
     if (server_->listen(name)) return true;
-
     QLocalSocket probe;
     probe.connectToServer(name);
     if (probe.waitForConnected(150)) return false;
-
     QLocalServer::removeServer(name);
     return server_->listen(name);
 }
@@ -42,7 +40,6 @@ void BrowserBridge::acceptConnection() {
 void BrowserBridge::readSocket() {
     auto *socket = qobject_cast<QLocalSocket *>(sender());
     if (!socket) return;
-
     QByteArray pending = socket->property(kPendingProperty).toByteArray();
     pending.append(socket->readAll());
     if (pending.size() > kMaxMessageBytes) {
@@ -50,18 +47,12 @@ void BrowserBridge::readSocket() {
         socket->disconnectFromServer();
         return;
     }
-
-    // QLocalSocket is a byte stream: one write on the client is not guaranteed
-    // to arrive as one readyRead event. Use a newline delimiter rather than
-    // parsing arbitrary partial chunks as complete JSON.
     const qsizetype newline = pending.indexOf('\n');
     if (newline < 0) {
         socket->setProperty(kPendingProperty, pending);
         return;
     }
-
-    const QByteArray message = pending.left(newline).trimmed();
-    const auto document = QJsonDocument::fromJson(message);
+    const auto document = QJsonDocument::fromJson(pending.left(newline).trimmed());
     if (!document.isObject()) {
         sendJsonLine(socket, QJsonObject{{"ok", false}, {"error", "invalid-json"}});
         socket->disconnectFromServer();
@@ -71,13 +62,20 @@ void BrowserBridge::readSocket() {
     processMessage(socket, document.object());
 }
 void BrowserBridge::processMessage(QLocalSocket *socket, const QJsonObject &message) {
+    const QString action = message.value(QStringLiteral("action")).toString();
+    if (action == QStringLiteral("status")) {
+        sendJsonLine(socket, QJsonObject{{"ok", true}, {"status", QStringLiteral("connected")}});
+        socket->disconnectFromServer();
+        return;
+    }
     const QString url = message.value(QStringLiteral("url")).toString().trimmed();
     const QString title = message.value(QStringLiteral("title")).toString().trimmed();
     const QString kind = message.value(QStringLiteral("kind")).toString(QStringLiteral("page"));
     const QUrl parsed(url);
     if (!parsed.isValid() || (parsed.scheme() != QStringLiteral("http") && parsed.scheme() != QStringLiteral("https"))) {
         sendJsonLine(socket, QJsonObject{{"ok", false}, {"error", "invalid-url"}});
-        socket->disconnectFromServer(); return;
+        socket->disconnectFromServer();
+        return;
     }
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const qint64 last = recentCaptures_.value(url, 0);
