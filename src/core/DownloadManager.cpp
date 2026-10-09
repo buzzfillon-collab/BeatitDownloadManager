@@ -236,8 +236,43 @@ bool DownloadManager::updateProperties(const PersistedDownload &properties) {
         const QString filename = QFileInfo(properties.filename.trimmed()).fileName();
         if (filename.isEmpty() || filename == QStringLiteral(".") || filename == QStringLiteral("..") ||
             properties.destination.trimmed().isEmpty()) return false;
+        const QString newDestination = QDir::cleanPath(properties.destination.trimmed());
+        const QString oldBase = QDir(updated.destination).filePath(updated.filename);
+        const QString newBase = QDir(newDestination).filePath(filename);
+        if (oldBase != newBase) {
+            struct MovePair { QString from; QString to; };
+            QVector<MovePair> moves;
+            const QString oldPart = oldBase + QStringLiteral(".part");
+            const QString newPart = newBase + QStringLiteral(".part");
+            const QStringList candidates{oldBase, oldPart};
+            for (const QString &from : candidates) {
+                if (QFileInfo::exists(from)) {
+                    const QString to = from == oldBase ? newBase : newPart;
+                    if (QFileInfo::exists(to)) return false;
+                    moves.push_back({from,to});
+                }
+            }
+            for (int i=0;i<32;++i) {
+                const QString from = oldPart + QStringLiteral(".%1").arg(i);
+                if (QFileInfo::exists(from)) {
+                    const QString to = newPart + QStringLiteral(".%1").arg(i);
+                    if (QFileInfo::exists(to)) return false;
+                    moves.push_back({from,to});
+                }
+            }
+            if (!moves.isEmpty() && !QDir().mkpath(newDestination)) return false;
+            QVector<MovePair> completedMoves;
+            for (const auto &move : moves) {
+                if (!QFile::rename(move.from, move.to)) {
+                    for (auto it = completedMoves.crbegin(); it != completedMoves.crend(); ++it)
+                        QFile::rename(it->to, it->from);
+                    return false;
+                }
+                completedMoves.push_back(move);
+            }
+        }
         updated.filename = filename;
-        updated.destination = QDir::cleanPath(properties.destination.trimmed());
+        updated.destination = newDestination;
     }
     updated.category = properties.category.trimmed().isEmpty() ? QStringLiteral("Other") : properties.category.trimmed();
     updated.description = properties.description.trimmed();
