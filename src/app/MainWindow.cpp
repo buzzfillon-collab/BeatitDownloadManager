@@ -889,13 +889,14 @@ void MainWindow::handleBrowserCapture(const QString &url, const QString &title, 
     const bool dash = path.endsWith(QStringLiteral(".mpd"));
 
     if (youtube || hls || dash || kind == QStringLiteral("youtube") || kind == QStringLiteral("hls") ||
-        kind == QStringLiteral("dash") || kind == QStringLiteral("video") || kind == QStringLiteral("audio")) {
+        kind == QStringLiteral("dash") || kind == QStringLiteral("video") || kind == QStringLiteral("video-page") ||
+        kind == QStringLiteral("audio")) {
         const QString streamKind = hls || kind == QStringLiteral("hls") ? QStringLiteral("hls")
             : (dash || kind == QStringLiteral("dash") ? QStringLiteral("dash") : kind);
         if (kind == QStringLiteral("audio")) {
             startYtDlpDownload(url, youtube || kind == QStringLiteral("youtube"), streamKind, true);
         } else {
-            chooseVideoFormat(url, youtube || kind == QStringLiteral("youtube"), streamKind);
+            chooseVideoFormat(url, youtube || kind == QStringLiteral("youtube") || kind == QStringLiteral("video-page"), streamKind);
         }
         return;
     }
