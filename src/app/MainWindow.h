@@ -37,6 +37,8 @@ private slots:
     void runScheduledSiteGrabber();
     void previewRemoteZip(const QString &url);
     void showQueueManager();
+    void showSyncManager();
+    void runSyncChecks();
 private:
     int selectedRow() const;
     QString selectedId() const;
@@ -64,4 +66,5 @@ private:
     QHash<QString, qint64> startedAt_;
     bool reallyQuit_ = false;
     bool siteGrabberScheduleRunning_ = false;
+    bool syncCheckRunning_ = false;
 };
