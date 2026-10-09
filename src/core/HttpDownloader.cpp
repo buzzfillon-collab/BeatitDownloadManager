@@ -383,7 +383,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         applyProxy(curl, this);
         curl_easy_setopt(curl,CURLOPT_FOLLOWLOCATION,1L);curl_easy_setopt(curl,CURLOPT_MAXREDIRS,10L);
         curl_easy_setopt(curl,CURLOPT_CONNECTTIMEOUT,20L);curl_easy_setopt(curl,CURLOPT_LOW_SPEED_LIMIT,1L);curl_easy_setopt(curl,CURLOPT_LOW_SPEED_TIME,60L);
-        curl_easy_setopt(curl,CURLOPT_USERAGENT,"BeatitDownloadManager/0.1 beta");curl_easy_setopt(curl,CURLOPT_NOSIGNAL,1L);
+        curl_easy_setopt(curl,CURLOPT_USERAGENT,userAgent_.toUtf8().constData());curl_easy_setopt(curl,CURLOPT_NOSIGNAL,1L);
         const qint64 limit = bandwidthLimit_.load();
         if (limit > 0) curl_easy_setopt(curl, CURLOPT_MAX_RECV_SPEED_LARGE, static_cast<curl_off_t>(limit));
         curl_easy_setopt(curl,CURLOPT_WRITEFUNCTION,writeCallback);curl_easy_setopt(curl,CURLOPT_WRITEDATA,&ctx);
