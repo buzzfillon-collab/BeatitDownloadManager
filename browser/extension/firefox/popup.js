@@ -51,7 +51,7 @@ async function load() {
   const [stored] = await Promise.all([chrome.storage.local.get(defaults)]);
   $("intercept").checked = stored.interceptEnabled !== false;
   $("mediaDetection").checked = stored.mediaDetectionEnabled !== false;
-  $("extensions").value = stored.interceptExtensions || defaults.interceptExtensions;
+  $("extensions").value = typeof stored.interceptExtensions === "string" ? stored.interceptExtensions : defaults.interceptExtensions;
   const tabs = await chrome.tabs.query({active:true,currentWindow:true});
   activeTab = tabs[0] || null;
   $("tabTitle").textContent = activeTab?.title || activeTab?.url || "No active tab";
