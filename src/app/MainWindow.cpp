@@ -160,9 +160,9 @@ void accentRow(QTableWidget *table, int row, bool torrent) {
     if (auto *file = table->item(row, 0))
         file->setForeground(QColor(torrent ? "#63e6be" : "#55d6e8"));
     if (auto *status = table->item(row, 1))
-        status->setForeground(QColor(torrent ? "#62d89b" : "#67a9ff"));
+        status->setForeground(QColor(torrent ? "#63e6be" : "#55d6e8"));
 }
-QIcon beatitIcon(){QPixmap x(64,64);x.fill(Qt::transparent);QPainter p(&x);p.setRenderHint(QPainter::Antialiasing);p.setBrush(QColor("#7c5cff"));p.setPen(Qt::NoPen);p.drawRoundedRect(4,4,56,56,16,16);p.setPen(QPen(Qt::white,7,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));p.drawLine(20,18,20,46);p.drawLine(20,18,39,18);p.drawLine(20,32,35,32);p.drawLine(20,46,41,46);return QIcon(x);}
+QIcon beatitIcon(){QPixmap x(64,64);x.fill(Qt::transparent);QPainter p(&x);p.setRenderHint(QPainter::Antialiasing);p.setBrush(QColor("#0faeae"));p.setPen(Qt::NoPen);p.drawRoundedRect(4,4,56,56,16,16);p.setPen(QPen(Qt::white,7,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));p.drawLine(20,18,20,46);p.drawLine(20,18,39,18);p.drawLine(20,32,35,32);p.drawLine(20,46,41,46);return QIcon(x);}
 }
 
 MainWindow::MainWindow(QWidget *parent):QMainWindow(parent),
@@ -296,7 +296,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         QTableWidget::item{padding:8px;border-bottom:1px solid #192d3c;}
         QTableWidget::item:selected{background:#173b49;color:white;}
         QHeaderView::section{background:#142333;border:none;border-bottom:1px solid #203547;padding:9px;color:#7f9bab;font-size:10px;font-weight:800;}
-        QProgressBar{background:#202632;border:0;border-radius:5px;text-align:center;color:#dce3ef;min-width:130px;max-width:190px;min-height:10px;max-height:10px;font-size:9px;}
+        QProgressBar{background:#1b2b3a;border:0;border-radius:6px;text-align:center;color:#dceef5;min-width:130px;max-width:190px;min-height:12px;max-height:12px;font-size:9px;}
         QProgressBar::chunk{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #22d3ee,stop:0.48 #60a5fa,stop:1 #a78bfa);border-radius:6px;}
     )");
     {
