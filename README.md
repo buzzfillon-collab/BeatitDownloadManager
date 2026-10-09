@@ -85,7 +85,7 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 4. For Firefox, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select `browser/extension/firefox/manifest.json` (or the same path inside the extracted ZIP).
 5. Open the extension popup. It should show **Connected** when Beatit's native bridge is reachable.
 
-Automatic interception is enabled by default. The popup lets you disable it, toggle media discovery, change the intercepted file extensions, scan the current page, and send detected media to Beatit. Detected streams are listed for an explicit user action; merely discovering an HLS/DASH manifest does not automatically start a media download.
+Automatic interception is enabled by default for all browser download types (`*`). The popup lets you disable it, toggle media discovery, change the intercepted file extensions, paste a URL manually, scan the current page, and send detected media to Beatit. Detected streams are listed for an explicit user action; merely discovering an HLS/DASH manifest does not automatically start a media download.
 
 #### Browser integration test checklist
 
