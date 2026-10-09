@@ -15,6 +15,8 @@ public:
     ~DownloadManager() override;
 
     QString addUrl(const QString &url, const QString &destination, const QString &category = {});
+    PersistedDownload downloadInfo(const QString &id) const;
+    bool updateProperties(const PersistedDownload &properties);
     void pause(const QString &id);
     void cancel(const QString &id);
     void remove(const QString &id, bool deleteFile = false);
