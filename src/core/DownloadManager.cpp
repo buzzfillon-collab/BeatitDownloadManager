@@ -268,8 +268,8 @@ bool DownloadManager::updateProperties(const PersistedDownload &properties) {
             QVector<MovePair> completedMoves;
             for (const auto &move : moves) {
                 if (!QFile::rename(move.from, move.to)) {
-                    for (auto it = completedMoves.crbegin(); it != completedMoves.crend(); ++it)
-                        QFile::rename(it->to, it->from);
+                    for (auto moveIt = completedMoves.crbegin(); moveIt != completedMoves.crend(); ++moveIt)
+                        QFile::rename(moveIt->to, moveIt->from);
                     return false;
                 }
                 completedMoves.push_back(move);
