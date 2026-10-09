@@ -38,10 +38,11 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 - [x] Weekly scheduler/calendar with per-day start/end windows
 - [x] Overnight scheduler windows
 - [x] Basic persisted queue of downloads awaiting an available slot
-- [ ] Multiple user-defined queues with independent concurrency, ordering, and start/stop controls
-- [ ] Editable category definitions, extension rules, and host-specific rules
-- [ ] Full per-download Properties dialog (edit URL, destination, filename, description, connection count, proxy, User-Agent, checksum)
-- [ ] Retry-failed and move-to-queue workflows
+- [x] Multiple user-defined queues with independent concurrency and start/stop controls
+- [x] Move queued downloads between queues and retry failed items per queue
+- [x] Editable extension rules for Video, Music, Documents, and Programs
+- [ ] Host-specific category rules and fully user-defined categories
+- [x] Per-download Properties dialog (edit URL, destination, filename, category, description, connection count, proxy, User-Agent, checksum)
 
 ### BitTorrent
 - [x] libtorrent session
@@ -68,8 +69,10 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 - [x] Video format/quality selection
 - [x] Bundled yt-dlp, FFmpeg, ffprobe, and Deno toolchain
 - [x] yt-dlp nightly/stable channel selection and update/retry path
-- [ ] Download all links from a page / selected text with filtering and deduplication
-- [ ] Site Grabber: bounded crawl, include/exclude filters, preview, saved projects, scheduling
+- [x] Extract and deduplicate HTTP/HTTPS links from a page; select individual links or Download All
+- [ ] Selected-text link extraction and advanced link-type filters
+- [x] Basic Site Grabber: bounded same-host crawl with a configurable page limit and link preview
+- [ ] Site Grabber include/exclude filters, saved projects, and scheduling
 - [ ] Browser-extension store submission and signed distribution
 
 ### IDM-parity features not yet implemented
