@@ -28,6 +28,9 @@ function classify(rawUrl, mime = "", resourceType = "") {
   const host = u.hostname.toLowerCase().replace(/^www\./, "");
   if (/\.m3u8$/i.test(path) || /(?:format|type)=hls(?:&|$)/i.test(u.search)) return "hls";
   if (/\.mpd$/i.test(path)) return "dash";
+  // YouTube's googlevideo URLs are commonly short-lived byte-range fragments, not stable download targets.
+  if (/(^|\.)googlevideo\.com$/.test(host)) return "segment";
+  if (/[?&](range|sq|segment|chunk|part|rn|rbuf)=/i.test(u.search)) return "segment";
   if (/(^|\.)youtube\.com$|(^|\.)youtube-nocookie\.com$|^youtu\.be$/.test(host)) return "youtube";
   if (/(^|\.)youtu\.be$|(^|\.)vimeo\.com$|(^|\.)twitch\.tv$|(^|\.)dailymotion\.com$|(^|\.)facebook\.com$|(^|\.)instagram\.com$|(^|\.)tiktok\.com$/.test(host)) return "video-page";
   if (/\.(mp4|webm|mkv|mov|m4v|avi|mp3|m4a|aac|ogg|opus|flac|wav|wma|flv|m4s)$/i.test(path)) {
