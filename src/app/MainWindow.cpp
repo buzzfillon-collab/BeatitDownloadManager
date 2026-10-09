@@ -1048,6 +1048,35 @@ void MainWindow::showLinkExtractor() {
                 pageDepth.insert(key, depth + 1);
             }
         }
+        static const QRegularExpression rawUrl(QStringLiteral(R"re(https?://[^\s"'<>]+)re"), QRegularExpression::CaseInsensitiveOption);
+        auto raw = rawUrl.globalMatch(html);
+        while (raw.hasNext()) {
+            QString value = raw.next().captured(0);
+            while (!value.isEmpty() && QStringLiteral(".,;:!?) ]}").contains(value.back())) value.chop(1);
+            QUrl target(value);
+            target.setFragment(QString());
+            const QString scheme = target.scheme().toLower();
+            if (!target.isValid() || target.host().isEmpty() ||
+                (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))) continue;
+            const QString key = target.toString(QUrl::FullyEncoded);
+            if (!acceptedByFilters(key)) continue;
+            if (!seenLinks.contains(key)) {
+                seenLinks.insert(key);
+                auto *item = new QListWidgetItem(key, links);
+                item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+                item->setCheckState(Qt::Checked);
+            }
+            const QString path = target.path().toLower();
+            const bool htmlPage = path.isEmpty() || path.endsWith(QStringLiteral(".html")) ||
+                path.endsWith(QStringLiteral(".htm")) || path.endsWith(QStringLiteral(".php")) ||
+                path.endsWith(QStringLiteral(".asp")) || path.endsWith(QStringLiteral(".aspx"));
+            if (siteGrabber->isChecked() && depth < maxDepth->value() &&
+                target.host().compare(baseHost, Qt::CaseInsensitive) == 0 && htmlPage &&
+                !seenPages.contains(key) && pageCount + pendingPages.size() < maxPages->value()) {
+                pendingPages.append(key);
+                pageDepth.insert(key, depth + 1);
+            }
+        }
     };
     *crawlFn = [&,weakCrawl](QUrl page) {
         if (cancelled) return;
