@@ -736,8 +736,11 @@ void MainWindow::handleBrowserCapture(const QString &url, const QString &title, 
 
     if (parsed.isValid() && (parsed.scheme() == QStringLiteral("http") ||
                              parsed.scheme() == QStringLiteral("https"))) {
-        downloadManager_->addUrl(url, QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
-        statusLabel_->setText(QStringLiteral("Browser download queued"));
+        const QString category = categoryForUrl(url);
+        const QString destination = categoryDestination(category);
+        QDir().mkpath(destination);
+        downloadManager_->addUrl(url, destination, category);
+        statusLabel_->setText(QStringLiteral("Browser download queued — %1").arg(category));
     }
 }
 
@@ -813,6 +816,9 @@ void MainWindow::showSelectedProperties() {
                 QStringLiteral("Check the filename, destination and SHA-256 value. Active downloads cannot change filename or destination."));
             return;
         }
+        const int row = rowForId(stored.id);
+        if (row >= 0 && downloadsTable_->item(row, 0)) downloadsTable_->item(row, 0)->setText(updated.filename);
+        paths_[stored.id] = updated.destination;
         statusLabel_->setText(QStringLiteral("Download properties saved"));
         dialog.accept();
     });
@@ -873,6 +879,7 @@ void MainWindow::showLinkExtractor() {
         ++(*pageCount);
         status->setText(QStringLiteral("Fetching page %1 of %2: %3").arg(*pageCount).arg(maxPages->value()).arg(page.host()));
         QNetworkRequest request(page);
+        request.setRawHeader("User-Agent", "BeatitDownloadManager/0.1");
         request.setTransferTimeout(15000);
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
         QNetworkReply *reply = network->get(request);
