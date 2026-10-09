@@ -94,6 +94,13 @@
   function scan() {
     document.querySelectorAll("video").forEach(attach);
     scanResources();
+    // Some players expose only blob: URLs. In that case the page URL is the useful yt-dlp target.
+    const videos = Array.from(document.querySelectorAll("video"));
+    const audios = Array.from(document.querySelectorAll("audio"));
+    if (videos.some(media => !classifyUrl(media.currentSrc || media.src)))
+      sendDetected(location.href, "video-page");
+    else if (audios.some(media => !classifyUrl(media.currentSrc || media.src)))
+      sendDetected(location.href, "audio");
   }
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.action !== "scan-media") return;
