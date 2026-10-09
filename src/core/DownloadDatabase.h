@@ -2,6 +2,14 @@
 #include <QString>
 #include <QVector>
 
+struct DownloadQueue {
+    QString id;
+    QString name;
+    int maxActive = 2;
+    bool paused = false;
+    int sortOrder = 0;
+};
+
 struct PersistedDownload {
     QString id;
     QString type;
@@ -33,6 +41,9 @@ public:
     bool open();
     bool save(const PersistedDownload &download);
     bool remove(const QString &id);
+    QVector<DownloadQueue> loadQueues() const;
+    bool saveQueue(const DownloadQueue &queue);
+    bool removeQueue(const QString &id);
     QVector<PersistedDownload> loadActive() const;
     QVector<PersistedDownload> loadHistory() const;
     QString path() const;

@@ -107,9 +107,12 @@ bool DownloadDatabase::initialize() {
     ok = ok && ensureColumn(db, "proxy_type", "INTEGER NOT NULL DEFAULT -1");
     ok = ok && ensureColumn(db, "proxy_host", "TEXT NOT NULL DEFAULT ''");
     ok = ok && ensureColumn(db, "proxy_port", "INTEGER NOT NULL DEFAULT 0");
+    ok = ok && execSql(db, "CREATE TABLE IF NOT EXISTS download_queues (id TEXT PRIMARY KEY,name TEXT NOT NULL,max_active INTEGER NOT NULL DEFAULT 2,paused INTEGER NOT NULL DEFAULT 0,sort_order INTEGER NOT NULL DEFAULT 0);");
+    ok = ok && execSql(db, "INSERT OR IGNORE INTO download_queues(id,name,max_active,paused,sort_order) VALUES('main','Main',3,0,0);");
+    ok = ok && execSql(db, "UPDATE downloads SET queue_id='main' WHERE queue_id IS NULL OR queue_id='';");
     ok = ok && execSql(db, "CREATE INDEX IF NOT EXISTS downloads_status ON downloads(status);");
     ok = ok && execSql(db, "CREATE INDEX IF NOT EXISTS downloads_queue_status ON downloads(queue_id,status);");
-    ok = ok && execSql(db, "PRAGMA user_version=3;");
+    ok = ok && execSql(db, "PRAGMA user_version=4;");
     if (ok) return execSql(db, "COMMIT;");
     execSql(db, "ROLLBACK;");
     return false;
@@ -186,4 +189,43 @@ bool DownloadDatabase::remove(const QString &id) {
     const bool ok = sqlite3_step(s) == SQLITE_DONE;
     sqlite3_finalize(s);
     return ok;
+}
+
+QVector<DownloadQueue> DownloadDatabase::loadQueues() const {
+    QVector<DownloadQueue> out;
+    if (!db_) return out;
+    sqlite3_stmt *s = nullptr;
+    if (sqlite3_prepare_v2(asDb(db_), "SELECT id,name,max_active,paused,sort_order FROM download_queues ORDER BY sort_order,id;", -1, &s, nullptr) != SQLITE_OK) return out;
+    while (sqlite3_step(s) == SQLITE_ROW) {
+        DownloadQueue q;
+        q.id = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 0)));
+        q.name = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 1)));
+        q.maxActive = qMax(1, sqlite3_column_int(s, 2));
+        q.paused = sqlite3_column_int(s, 3) != 0;
+        q.sortOrder = sqlite3_column_int(s, 4);
+        out.push_back(q);
+    }
+    sqlite3_finalize(s); return out;
+}
+bool DownloadDatabase::saveQueue(const DownloadQueue &q) {
+    if (!open() || q.id.trimmed().isEmpty() || q.name.trimmed().isEmpty()) return false;
+    sqlite3_stmt *s = nullptr;
+    const char *sql = "INSERT INTO download_queues(id,name,max_active,paused,sort_order) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,max_active=excluded.max_active,paused=excluded.paused,sort_order=excluded.sort_order;";
+    if (sqlite3_prepare_v2(asDb(db_), sql, -1, &s, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(s,1,q.id.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(s,2,q.name.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_int(s,3,qBound(1,q.maxActive,32));
+    sqlite3_bind_int(s,4,q.paused ? 1 : 0);
+    sqlite3_bind_int(s,5,q.sortOrder);
+    const bool ok=sqlite3_step(s)==SQLITE_DONE; sqlite3_finalize(s); return ok;
+}
+bool DownloadDatabase::removeQueue(const QString &id) {
+    if (!open() || id == QStringLiteral("main")) return false;
+    sqlite3_stmt *s=nullptr;
+    if (sqlite3_prepare_v2(asDb(db_), "UPDATE downloads SET queue_id='main' WHERE queue_id=?;", -1, &s, nullptr)!=SQLITE_OK) return false;
+    sqlite3_bind_text(s,1,id.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    const bool moved=sqlite3_step(s)==SQLITE_DONE; sqlite3_finalize(s); if(!moved)return false;
+    if(sqlite3_prepare_v2(asDb(db_), "DELETE FROM download_queues WHERE id=?;", -1, &s, nullptr)!=SQLITE_OK)return false;
+    sqlite3_bind_text(s,1,id.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    const bool ok=sqlite3_step(s)==SQLITE_DONE;sqlite3_finalize(s);return ok;
 }

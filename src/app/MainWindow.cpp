@@ -120,6 +120,8 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     urlEdit_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);
     toolbarLayout->addWidget(urlEdit_,1);toolbarLayout->addWidget(addButton_);
     auto *fileButton=new QPushButton(QStringLiteral("＋ Torrent"),toolbar);toolbarLayout->addWidget(fileButton);
+    auto *queuesButton=new QPushButton(QStringLiteral("Queues"),toolbar);
+    toolbarLayout->addWidget(queuesButton);
     auto *settingsButton=new QPushButton(QStringLiteral("⚙"),toolbar);
     settingsButton->setToolTip(QStringLiteral("Settings"));
     settingsButton->setFixedWidth(42);
@@ -222,6 +224,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
             statusLabel_->setText(QStringLiteral("yt-dlp: %1").arg(message));
     });
 
+    connect(queuesButton, &QPushButton::clicked, this, &MainWindow::showQueueManager);
     connect(addButton_,&QPushButton::clicked,this,&MainWindow::addDownload);
     connect(urlEdit_,&QLineEdit::returnPressed,this,&MainWindow::addDownload);
     connect(pauseButton_,&QPushButton::clicked,this,&MainWindow::pauseSelected);
@@ -1127,3 +1130,26 @@ void MainWindow::showSettings(){
     statusLabel_->setText(QStringLiteral("Settings saved"));
 }
 
+
+void MainWindow::showQueueManager() {
+    QDialog dialog(this); dialog.setWindowTitle(QStringLiteral("Download queues")); dialog.resize(540,420);
+    auto *layout=new QVBoxLayout(&dialog); auto *list=new QListWidget(&dialog);
+    auto refresh=[this,list](){const QString old=list->currentItem()?list->currentItem()->data(Qt::UserRole).toString():QString();list->clear();
+        for(const auto&q:downloadManager_->queues()){auto*i=new QListWidgetItem(QStringLiteral("%1 — %2 active max — %3").arg(q.name).arg(q.maxActive).arg(q.paused?"Stopped":"Running"),list);i->setData(Qt::UserRole,q.id);i->setData(Qt::UserRole+1,q.paused);if(q.id==old)list->setCurrentItem(i);}
+        if(!list->currentItem()&&list->count())list->setCurrentRow(0);};
+    layout->addWidget(list,1);auto*buttons=new QHBoxLayout();auto*add=new QPushButton("New queue",&dialog);auto*rename=new QPushButton("Rename",&dialog);auto*toggle=new QPushButton("Start / Stop",&dialog);
+    buttons->addWidget(add);buttons->addWidget(rename);buttons->addWidget(toggle);layout->addLayout(buttons);
+    auto*form=new QFormLayout();auto*limit=new QSpinBox(&dialog);limit->setRange(1,32);form->addRow("Maximum simultaneous downloads",limit);layout->addLayout(form);
+    auto*apply=new QPushButton("Apply limit",&dialog);auto*move=new QPushButton("Move selected download here",&dialog);auto*retry=new QPushButton("Retry failed in queue",&dialog);auto*close=new QDialogButtonBox(QDialogButtonBox::Close,&dialog);
+    auto*bottom=new QHBoxLayout();bottom->addWidget(apply);bottom->addWidget(move);bottom->addWidget(retry);bottom->addStretch();bottom->addWidget(close);layout->addLayout(bottom);
+    auto queueId=[list](){return list->currentItem()?list->currentItem()->data(Qt::UserRole).toString():QString();};
+    auto updateLimit=[this,limit,queueId](){for(const auto&q:downloadManager_->queues())if(q.id==queueId()){limit->setValue(q.maxActive);break;}};
+    connect(list,&QListWidget::currentRowChanged,&dialog,[updateLimit](int){updateLimit();});
+    connect(add,&QPushButton::clicked,&dialog,[this,&dialog,refresh](){bool ok=false;QString n=QInputDialog::getText(&dialog,"New queue","Queue name",QLineEdit::Normal,QString(),&ok);if(ok&&!downloadManager_->createQueue(n))QMessageBox::warning(&dialog,"Queue not created","Name must be unique and non-empty.");refresh();});
+    connect(rename,&QPushButton::clicked,&dialog,[this,&dialog,queueId,refresh](){QString id=queueId();if(id.isEmpty())return;QString old;for(const auto&q:downloadManager_->queues())if(q.id==id)old=q.name;bool ok=false;QString n=QInputDialog::getText(&dialog,"Rename queue","Queue name",QLineEdit::Normal,old,&ok);if(ok&&!downloadManager_->renameQueue(id,n))QMessageBox::warning(&dialog,"Rename failed","Name must be unique and non-empty.");refresh();});
+    connect(toggle,&QPushButton::clicked,&dialog,[this,list,queueId,refresh](){if(!list->currentItem())return;downloadManager_->setQueuePaused(queueId(),!list->currentItem()->data(Qt::UserRole+1).toBool());refresh();});
+    connect(apply,&QPushButton::clicked,&dialog,[this,queueId,limit,&dialog](){if(!downloadManager_->setQueueConcurrency(queueId(),limit->value()))QMessageBox::warning(&dialog,"Queue update failed","Could not save queue limit.");});
+    connect(move,&QPushButton::clicked,&dialog,[this,queueId,&dialog](){QString id=selectedId();if(id.isEmpty()||id.startsWith("torrent-")){QMessageBox::information(&dialog,"Select a download","Select an HTTP/HTTPS download in the main list first.");return;}if(!downloadManager_->moveToQueue(id,queueId()))QMessageBox::information(&dialog,"Cannot move download","Pause the download before moving it.");else statusLabel_->setText("Download moved to queue");});
+    connect(retry,&QPushButton::clicked,&dialog,[this,queueId](){downloadManager_->retryFailedInQueue(queueId());statusLabel_->setText("Retrying failed downloads in queue");});
+    connect(close,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);refresh();updateLimit();dialog.exec();
+}

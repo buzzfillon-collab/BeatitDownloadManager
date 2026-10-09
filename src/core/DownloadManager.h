@@ -20,6 +20,13 @@ public:
     void remove(const QString &id, bool deleteFile = false);
     void resume(const QString &id);
     void setMaxActive(int count);
+    QVector<DownloadQueue> queues() const;
+    bool createQueue(const QString &name);
+    bool renameQueue(const QString &id, const QString &name);
+    bool setQueueConcurrency(const QString &id, int count);
+    bool setQueuePaused(const QString &id, bool paused);
+    bool moveToQueue(const QString &downloadId, const QString &queueId);
+    void retryFailedInQueue(const QString &queueId);
     void setHttpConnections(int count);
     void setBandwidthLimit(qint64 bytesPerSecond);
     void setProxy(const QString &host, int port, int type);
@@ -54,6 +61,7 @@ private:
                  qint64 total = 0, qint64 speed = 0, const QString &error = {});
     void startNextQueued();
     void updateActiveBandwidthLimits();
+    int activeCountForQueue(const QString &queueId) const;
 
     int nextId_ = 1;
     int maxActive_ = 3;
@@ -68,5 +76,6 @@ private:
     QHash<QString, PersistedDownload> queued_;
     QHash<QString, bool> pendingRemoval_;
     QHash<QString, bool> pendingDeleteFile_;
+    QHash<QString, DownloadQueue> queues_;
     DownloadDatabase database_;
 };
