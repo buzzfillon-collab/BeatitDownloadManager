@@ -1137,7 +1137,7 @@ void MainWindow::showQueueManager() {
     auto refresh=[this,list](){const QString old=list->currentItem()?list->currentItem()->data(Qt::UserRole).toString():QString();list->clear();
         for(const auto&q:downloadManager_->queues()){auto*i=new QListWidgetItem(QStringLiteral("%1 — %2 active max — %3").arg(q.name).arg(q.maxActive).arg(q.paused?"Stopped":"Running"),list);i->setData(Qt::UserRole,q.id);i->setData(Qt::UserRole+1,q.paused);if(q.id==old)list->setCurrentItem(i);}
         if(!list->currentItem()&&list->count())list->setCurrentRow(0);};
-    layout->addWidget(list,1);auto*buttons=new QHBoxLayout();auto*add=new QPushButton("New queue",&dialog);auto*rename=new QPushButton("Rename",&dialog);auto*toggle=new QPushButton("Start / Stop",&dialog);
+    layout->addWidget(list,1);auto*buttons=new QHBoxLayout();auto*add=new QPushButton("New queue",&dialog);auto*rename=new QPushButton("Rename",&dialog);auto*toggle=new QPushButton("Stop / Start queue",&dialog);
     buttons->addWidget(add);buttons->addWidget(rename);buttons->addWidget(toggle);layout->addLayout(buttons);
     auto*form=new QFormLayout();auto*limit=new QSpinBox(&dialog);limit->setRange(1,32);form->addRow("Maximum simultaneous downloads",limit);layout->addLayout(form);
     auto*apply=new QPushButton("Apply limit",&dialog);auto*move=new QPushButton("Move selected download here",&dialog);auto*retry=new QPushButton("Retry failed in queue",&dialog);auto*close=new QDialogButtonBox(QDialogButtonBox::Close,&dialog);
