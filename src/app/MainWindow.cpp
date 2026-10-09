@@ -997,6 +997,20 @@ void MainWindow::showLinkExtractor() {
     auto *schedule = new QCheckBox(QStringLiteral("Schedule recurring background scans"), &dialog);
     schedule->setChecked(grabberSettings.value(QStringLiteral("siteGrabber/scheduleEnabled"), false).toBool());
     auto *scheduleHours = new QSpinBox(&dialog); scheduleHours->setRange(1,168); scheduleHours->setValue(grabberSettings.value(QStringLiteral("siteGrabber/scheduleHours"),24).toInt());
+    if (schedule->isChecked()) {
+        const QJsonDocument savedSchedule=QJsonDocument::fromJson(grabberSettings.value(QStringLiteral("siteGrabber/scheduleConfig")).toByteArray());
+        if(savedSchedule.isObject()) {
+            const QJsonObject saved=savedSchedule.object();
+            pageUrl->setText(saved.value(QStringLiteral("url")).toString());
+            htmlInput->setPlainText(saved.value(QStringLiteral("html")).toString());
+            siteGrabber->setChecked(saved.value(QStringLiteral("siteGrabber")).toBool());
+            maxPages->setValue(qBound(1,saved.value(QStringLiteral("maxPages")).toInt(20),500));
+            maxDepth->setValue(qBound(0,saved.value(QStringLiteral("maxDepth")).toInt(3),20));
+            includePattern->setText(saved.value(QStringLiteral("include")).toString());
+            excludePattern->setText(saved.value(QStringLiteral("exclude")).toString());
+            extensions->setText(saved.value(QStringLiteral("extensions")).toString());
+        }
+    }
     options->addWidget(siteGrabber,0,0,1,2);
     options->addWidget(new QLabel(QStringLiteral("Page limit"),&dialog),1,0); options->addWidget(maxPages,1,1);
     options->addWidget(new QLabel(QStringLiteral("Depth limit"),&dialog),1,2); options->addWidget(maxDepth,1,3);
@@ -1309,7 +1323,6 @@ void MainWindow::previewRemoteZip(const QString &url) {
         static const QRegularExpression contentRange(QStringLiteral(R"re(^bytes\s+(\d+)-(\d+)/(\d+)$)re"),QRegularExpression::CaseInsensitiveOption);
         const auto rangeMatch=contentRange.match(range);
         if(!rangeMatch.hasMatch()) {fail(QStringLiteral("The server returned an invalid Content-Range header."));return;}
-        const quint64 rangeStart=rangeMatch.captured(1).toULongLong();
         const quint64 totalSize=rangeMatch.captured(3).toULongLong();
         int eocd=-1;
         for(int pos=data.size()-22;pos>=qMax(0,data.size()-65557);--pos) {
