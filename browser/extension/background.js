@@ -16,6 +16,7 @@ function classify(url) {
   const u = new URL(url);
   const lower = u.pathname.toLowerCase();
   if (lower.includes(".m3u8")) return "hls";
+  if (lower.endsWith(".mpd")) return "dash";
   if (lower.endsWith(".ts")) return "ts";
   if (/\.(mp4|webm|mkv|mov|m4v|mp3|aac|flac)$/i.test(lower)) return "media";
   if (/^(www\.)?(youtube\.com|youtube-nocookie\.com|youtu\.be)$/i.test(u.hostname)) return "youtube";
@@ -29,7 +30,7 @@ chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     if (details.tabId < 0 || !/^https?:/i.test(details.url)) return;
     const kind = classify(details.url);
-    if (kind === "hls")
+    if (kind === "hls" || kind === "dash")
       send({url: details.url, title: "", kind});
   },
   {urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other"]}
