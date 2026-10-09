@@ -1186,7 +1186,7 @@ void MainWindow::showLinkExtractor() {
             const auto netError = reply->error();
             const QString finalHost = reply->url().host();
             reply->deleteLater();
-            const bool sameHost = finalHost.compare(*baseHost, Qt::CaseInsensitive) == 0;
+            const bool sameHost = finalHost.compare(baseHost, Qt::CaseInsensitive) == 0;
             if (!cancelled && netError == QNetworkReply::NoError && (!siteGrabber->isChecked() || sameHost))
                 addHtmlLinks(QString::fromUtf8(html), page, pageDepth.value(page.toString(QUrl::FullyEncoded),0));
             if (cancelled) return;
