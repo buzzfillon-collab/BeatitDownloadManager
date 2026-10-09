@@ -210,6 +210,48 @@ bool DownloadManager::verifyChecksum(const QString &id, QString *message) {
     return ok;
 }
 
+PersistedDownload DownloadManager::downloadInfo(const QString &id) const {
+    const auto it = queued_.constFind(id);
+    if (it != queued_.cend()) return it.value();
+    for (const auto &stored : database_.loadHistory())
+        if (stored.id == id) return stored;
+    return {};
+}
+
+bool DownloadManager::updateProperties(const PersistedDownload &properties) {
+    if (properties.id.isEmpty()) return false;
+    PersistedDownload updated;
+    auto it = queued_.find(properties.id);
+    if (it != queued_.end()) updated = it.value();
+    else {
+        bool found = false;
+        for (const auto &stored : database_.loadHistory()) {
+            if (stored.id == properties.id) { updated = stored; found = true; break; }
+        }
+        if (!found) return false;
+    }
+    if (active_.contains(properties.id)) {
+        if (properties.destination != updated.destination || properties.filename != updated.filename) return false;
+    } else {
+        const QString filename = QFileInfo(properties.filename.trimmed()).fileName();
+        if (filename.isEmpty() || filename == QStringLiteral(".") || filename == QStringLiteral("..") ||
+            properties.destination.trimmed().isEmpty()) return false;
+        updated.filename = filename;
+        updated.destination = QDir::cleanPath(properties.destination.trimmed());
+    }
+    updated.category = properties.category.trimmed().isEmpty() ? QStringLiteral("Other") : properties.category.trimmed();
+    updated.description = properties.description.trimmed();
+    updated.connectionCount = qBound(1, properties.connectionCount, 8);
+    updated.sha256 = properties.sha256.trimmed().toLower();
+    if (!updated.sha256.isEmpty() &&
+        (updated.sha256.size() != 64 || updated.sha256.contains(QRegularExpression(QStringLiteral("[^0-9a-f]")))))
+        return false;
+    updated.verification.clear();
+    if (!database_.save(updated)) return false;
+    if (it != queued_.end()) it.value() = updated;
+    return true;
+}
+
 QString DownloadManager::addUrl(const QString &url, const QString &destination, const QString &category) {
     const QString id = QStringLiteral("download-%1").arg(nextId_++);
     PersistedDownload d;
