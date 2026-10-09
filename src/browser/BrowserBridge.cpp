@@ -5,6 +5,7 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QUrl>
+#include <QVariant>
 namespace {
 constexpr auto kServerName = "BeatitBrowserBridge";
 constexpr auto kMaxMessageBytes = 1024 * 1024;
