@@ -58,14 +58,16 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 - [x] Single-instance forwarding for external protocol launches
 
 ### Browser and media
-- [x] Chromium Manifest V3 extension
-- [x] Firefox WebExtension/native-messaging path
-- [x] Native host registration and app IPC bridge
-- [x] Browser download interception
-- [x] Context-menu download action
-- [x] Direct media capture and video-page overlay
-- [x] HLS/M3U8 and DASH/MPD manifest capture routed through yt-dlp
-- [x] YouTube capture through yt-dlp
+- [x] Chromium Manifest V3 extension with popup and Firefox Manifest V2-compatible package
+- [x] Firefox WebExtension/native-messaging path (separate package under `browser/extension/firefox/`)
+- [x] Native host registration and app IPC bridge, including a live status handshake
+- [x] Automatic interception of browser-created file downloads, with cancellation only after Beatit acknowledges the handoff
+- [x] User-configurable intercepted extensions and master interception toggle
+- [x] Context-menu actions for pages, links, selections, audio, and video
+- [x] Extension popup with connection status, manual current-tab handoff, scan action, and detected-media list
+- [x] Direct media detection from URL patterns, browser network requests, response MIME types, performance resource entries, and video/audio elements
+- [x] HLS/M3U8 and DASH/MPD manifest discovery routed through yt-dlp when selected
+- [x] YouTube and common yt-dlp-supported video-page detection and capture through yt-dlp
 - [x] Video format/quality selection, concurrent media-fragment downloads, and retry/resume options
 - [x] Bundled yt-dlp, FFmpeg, ffprobe, and Deno toolchain
 - [x] yt-dlp nightly/stable channel selection and update/retry path
