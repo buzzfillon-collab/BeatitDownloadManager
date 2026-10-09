@@ -30,6 +30,13 @@ $checksum = Get-Content (Join-Path $RepoRoot "src/core/HttpDownloader.cpp") -Raw
 if ($checksum -notmatch "QCryptographicHash|verifySha256|MAX_RECV_SPEED_LARGE") {
     throw "HTTP integrity/rate-limit implementation sanity check failed."
 }
+$mainWindow = Get-Content (Join-Path $RepoRoot "src/app/MainWindow.cpp") -Raw
+if ($mainWindow -notmatch "categories/|After download completes|completion/action") {
+    throw "Category routing or completion-action implementation missing."
+}
+if ($mainWindow -match 'scheme\(\).*ftp|startsWith\(QStringLiteral\("ftp://")') {
+    throw "FTP URL intake must remain out of scope."
+}
 
 $manifest = Get-Content (Join-Path $root "browser/extension/manifest.json") -Raw | ConvertFrom-Json
 if ($manifest.manifest_version -ne 3) { throw "Browser extension is not MV3." }
