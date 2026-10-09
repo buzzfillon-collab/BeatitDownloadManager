@@ -7,7 +7,7 @@ Comparison target: Internet Download Manager (IDM), using IDM's official feature
 ## Already present in Beatit
 
 - [x] HTTP/HTTPS downloading
-- [x] Segmented/multipart downloading with configurable 1–8 connections
+- [x] Segmented HTTP downloading: up to 32 stable byte ranges, scheduled by 1–8 concurrent workers; each worker claims another pending range when it finishes
 - [x] Pause/resume and restart recovery
 - [x] Retry/backoff
 - [x] Global concurrency and bandwidth limits
@@ -30,7 +30,7 @@ Comparison target: Internet Download Manager (IDM), using IDM's official feature
 - [ ] **Download All / selected-link extraction.** Accept a page URL or pasted HTML, extract links, filter by extension/domain, preview selections, normalize/deduplicate URLs, then enqueue chosen items. Do not bypass access controls.
 - [ ] **Site Grabber.** Bounded same-domain crawl by default, depth and request limits, include/exclude patterns, file-type filters, cancellation, preview, persisted projects, and scheduled re-runs. Respect site access restrictions.
 - [ ] **Clipboard URL monitor.** Optional setting; recognize supported HTTP/HTTPS URLs and show a confirmation dialog before enqueueing. Off by default if false positives are disruptive.
-- [ ] **Dynamic segment scheduling.** Current HTTP engine uses range-based segmented transfers with a configured connection count. IDM's distinctive behavior dynamically splits the largest remaining range and reuses idle connections. Consider this only after correctness tests prove it improves throughput without corrupting partial files.
+- [ ] **IDM-style adaptive range splitting.** The core scheduler already dispatches up to 32 pre-partitioned ranges across 1–8 workers and assigns the next pending range as workers finish. The remaining difference is dynamically splitting the largest unfinished range during a live transfer (and any safe reuse of a connection), which is an optimization—not a missing segmented-download engine. Only pursue after throughput and resume-integrity benchmarks.
 
 ### P2 — Useful polish
 - [ ] **ZIP preview.** Inspect archive entries before download/extraction, with path-traversal and archive-bomb protections. Do not auto-extract by default.
