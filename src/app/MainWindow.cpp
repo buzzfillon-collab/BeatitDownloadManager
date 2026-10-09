@@ -776,8 +776,17 @@ void MainWindow::showSelectedProperties() {
     auto *description = new QLineEdit(stored.description, &dialog);
     auto *connections = new QSpinBox(&dialog);
     connections->setRange(1,8);
-    connections->setValue(stored.connectionCount > 0 ? stored.connectionCount : 8);
+    connections->setValue(stored.connectionCount > 0 ? stored.connectionCount : downloadManager_->httpConnections());
     auto *sha = new QLineEdit(stored.sha256, &dialog);
+    auto *userAgent = new QLineEdit(stored.userAgent, &dialog);
+    userAgent->setPlaceholderText(QStringLiteral("Default if empty"));
+    auto *proxyMode = new QComboBox(&dialog);
+    proxyMode->addItems({QStringLiteral("Use global settings"), QStringLiteral("No proxy"), QStringLiteral("HTTP proxy"), QStringLiteral("SOCKS5 hostname")});
+    proxyMode->setCurrentIndex(stored.proxyType < 0 ? 0 : stored.proxyType + 1);
+    auto *proxyHost = new QLineEdit(stored.proxyHost, &dialog);
+    auto *proxyPort = new QSpinBox(&dialog);
+    proxyPort->setRange(0,65535);
+    proxyPort->setValue(stored.proxyPort);
     sha->setPlaceholderText(QStringLiteral("Optional 64-character SHA-256"));
     form->addRow(QStringLiteral("Source URL"), source);
     form->addRow(QStringLiteral("Filename"), filename);
@@ -786,6 +795,10 @@ void MainWindow::showSelectedProperties() {
     form->addRow(QStringLiteral("Description"), description);
     form->addRow(QStringLiteral("HTTP connections"), connections);
     form->addRow(QStringLiteral("Expected SHA-256"), sha);
+    form->addRow(QStringLiteral("User-Agent"), userAgent);
+    form->addRow(QStringLiteral("Proxy mode"), proxyMode);
+    form->addRow(QStringLiteral("Proxy host"), proxyHost);
+    form->addRow(QStringLiteral("Proxy port"), proxyPort);
     layout->addLayout(form);
     const QString status = downloadsTable_->item(rowForId(id),1) ? downloadsTable_->item(rowForId(id),1)->text().toLower() : QString();
     const bool active = status.contains(QStringLiteral("downloading")) || status.contains(QStringLiteral("resolving")) || status.contains(QStringLiteral("starting"));
@@ -805,7 +818,7 @@ void MainWindow::showSelectedProperties() {
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog,this,stored,source,filename,destination,category,description,connections,sha] {
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog,this,stored,source,filename,destination,category,description,connections,sha,userAgent,proxyMode,proxyHost,proxyPort] {
         PersistedDownload updated = stored;
         updated.source = source->text().trimmed();
         updated.filename = filename->text().trimmed();
@@ -814,6 +827,10 @@ void MainWindow::showSelectedProperties() {
         updated.description = description->text().trimmed();
         updated.connectionCount = connections->value();
         updated.sha256 = sha->text().trimmed();
+        updated.userAgent = userAgent->text().trimmed();
+        updated.proxyType = proxyMode->currentIndex() == 0 ? -1 : proxyMode->currentIndex() - 1;
+        updated.proxyHost = proxyHost->text().trimmed();
+        updated.proxyPort = proxyPort->value();
         if (!downloadManager_->updateProperties(updated)) {
             QMessageBox::warning(&dialog, QStringLiteral("Properties not saved"),
                 QStringLiteral("Check the filename, destination and SHA-256 value. Active downloads cannot change filename or destination."));
