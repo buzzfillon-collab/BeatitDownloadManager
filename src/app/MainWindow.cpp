@@ -763,8 +763,7 @@ void MainWindow::showSelectedProperties() {
     dialog.resize(620, 480);
     auto *layout = new QVBoxLayout(&dialog);
     auto *form = new QFormLayout();
-    auto *source = new QLabel(stored.source, &dialog);
-    source->setWordWrap(true);
+    auto *source = new QLineEdit(stored.source, &dialog);
     auto *filename = new QLineEdit(stored.filename, &dialog);
     auto *destination = new QLineEdit(stored.destination, &dialog);
     auto *browse = new QPushButton(QStringLiteral("Browse…"), &dialog);
@@ -790,11 +789,12 @@ void MainWindow::showSelectedProperties() {
     layout->addLayout(form);
     const QString status = downloadsTable_->item(rowForId(id),1) ? downloadsTable_->item(rowForId(id),1)->text().toLower() : QString();
     const bool active = status.contains(QStringLiteral("downloading")) || status.contains(QStringLiteral("resolving")) || status.contains(QStringLiteral("starting"));
+    source->setEnabled(!active);
     filename->setEnabled(!active);
     destination->setEnabled(!active);
     browse->setEnabled(!active);
     if (active) {
-        auto *note = new QLabel(QStringLiteral("Filename and destination are locked while this download is active. Other changes apply to future retries/resumes."), &dialog);
+        auto *note = new QLabel(QStringLiteral("Source URL, filename and destination are locked while this download is active. Other changes apply to future retries/resumes."), &dialog);
         note->setWordWrap(true);
         layout->addWidget(note);
     }
@@ -805,8 +805,9 @@ void MainWindow::showSelectedProperties() {
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog,this,stored,filename,destination,category,description,connections,sha] {
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog,this,stored,source,filename,destination,category,description,connections,sha] {
         PersistedDownload updated = stored;
+        updated.source = source->text().trimmed();
         updated.filename = filename->text().trimmed();
         updated.destination = destination->text().trimmed();
         updated.category = category->text().trimmed();
