@@ -20,8 +20,9 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 
 ### HTTP/HTTPS
 - [x] HTTP and HTTPS only; FTP/FTPS intentionally excluded
-- [x] Segmented downloads with configurable 1–8 connections
-- [x] Persistent segment files and range requests
+- [x] Segmented HTTP downloads: up to 32 stable byte ranges dispatched by configurable 1–8 concurrent workers
+- [x] Workers claim the next pending range immediately after finishing their current range
+- [x] Persistent segment files and range requests for resume
 - [x] Pause, resume, cancel, and retry/backoff
 - [x] Resume after application restart
 - [x] Global concurrent-download limit
@@ -72,7 +73,7 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 - [ ] Browser-extension store submission and signed distribution
 
 ### IDM-parity features not yet implemented
-- [ ] IDM-style dynamic segment splitting and reuse of completed connections
+- [ ] IDM-style adaptive splitting of the largest remaining range during an active transfer (existing 32-range worker scheduling is already implemented)
 - [ ] Clipboard URL monitoring with a confirmation prompt
 - [ ] Drag-and-drop URL/file intake and drag-out support
 - [ ] ZIP archive preview before downloading/extracting
