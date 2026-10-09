@@ -165,7 +165,7 @@ QVector<PersistedDownload> DownloadDatabase::loadActive() const {
 QVector<PersistedDownload> DownloadDatabase::loadHistory() const {
     if (!db_) return {};
     return readRows(asDb(db_),
-        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at,sha256,verification "
+        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at,sha256,verification,category,description,user_agent,queue_id,connection_count,proxy_type,proxy_host,proxy_port "
         "FROM downloads ORDER BY updated_at DESC;");
 }
 
