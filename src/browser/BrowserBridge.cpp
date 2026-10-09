@@ -71,6 +71,11 @@ void BrowserBridge::processMessage(QLocalSocket *socket, const QJsonObject &mess
     const QString url = message.value(QStringLiteral("url")).toString().trimmed();
     const QString title = message.value(QStringLiteral("title")).toString().trimmed();
     const QString kind = message.value(QStringLiteral("kind")).toString(QStringLiteral("page"));
+    QString pageUrl = message.value(QStringLiteral("pageUrl")).toString().trimmed();
+    QString userAgent = message.value(QStringLiteral("userAgent")).toString().trimmed();
+    if (pageUrl.size() > 8192 || !(QUrl(pageUrl).scheme() == QStringLiteral("http") || QUrl(pageUrl).scheme() == QStringLiteral("https")))
+        pageUrl.clear();
+    if (userAgent.size() > 1024) userAgent.clear();
     const QUrl parsed(url);
     if (!parsed.isValid() || (parsed.scheme() != QStringLiteral("http") && parsed.scheme() != QStringLiteral("https"))) {
         sendJsonLine(socket, QJsonObject{{"ok", false}, {"error", "invalid-url"}});
@@ -85,7 +90,7 @@ void BrowserBridge::processMessage(QLocalSocket *socket, const QJsonObject &mess
         return;
     }
     recentCaptures_[url] = now;
-    emit captureRequested(url, title, kind);
+    emit captureRequested(url, title, kind, pageUrl, userAgent);
     sendJsonLine(socket, QJsonObject{{"ok", true}});
     socket->disconnectFromServer();
 }
