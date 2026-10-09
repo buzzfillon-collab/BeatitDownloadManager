@@ -1,12 +1,6 @@
 const HOST = "com.beatit.download_manager";
 const MEDIA_LIMIT = 30;
-const DEFAULT_EXTENSIONS = [
-  "7z", "apk", "avi", "bin", "bz2", "csv", "deb", "dmg", "doc", "docx",
-  "exe", "flac", "flv", "gz", "iso", "m4a", "m4v", "mkv", "mov", "mp3",
-  "mp4", "mpeg", "mpg", "msi", "odt", "ogg", "pdf", "pkg", "ppt", "pptx",
-  "rar", "rpm", "tar", "torrent", "txt", "wav", "webm", "wma", "wmv",
-  "xls", "xlsx", "xz", "zip"
-];
+const DEFAULT_EXTENSIONS = ["*"];
 const recent = new Map();
 
 function send(payload) {
