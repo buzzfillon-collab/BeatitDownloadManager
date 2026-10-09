@@ -72,7 +72,7 @@ $("save").addEventListener("click", async () => {
 });
 $("downloadPage").addEventListener("click", async () => {
   if (!activeTab?.url || !/^https?:/i.test(activeTab.url)) return;
-  const response = await send({action:"download-url",url:activeTab.url,pageUrl:activeTab.url,title:activeTab.title||"",kind:/youtube\.com|youtu\.be|vimeo\.com|twitch\.tv/i.test(activeTab.url)?"youtube":"download"});
+  const response = await send({action:"download-url",url:activeTab.url,pageUrl:activeTab.url,title:activeTab.title||"",kind:/youtube\.com|youtu\.be|vimeo\.com|twitch\.tv|dailymotion\.com|facebook\.com|instagram\.com|tiktok\.com|streamable\.com|twitter\.com|x\.com/i.test(activeTab.url)?"youtube":"download"});
   $("downloadPage").textContent = response?.ok ? "Sent ✓" : "Failed — retry";
   setTimeout(() => $("downloadPage").textContent = "Download page", 1300);
 });
