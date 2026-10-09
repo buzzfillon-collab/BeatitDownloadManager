@@ -37,7 +37,7 @@ public:
     QVector<PersistedDownload> loadHistory() const;
     QString path() const;
 private:
-    void initialize();
+    bool initialize();
     void close();
     void *db_ = nullptr;
     QString path_;
