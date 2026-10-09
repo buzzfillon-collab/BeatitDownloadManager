@@ -2,93 +2,111 @@
 
 Free and open-source Windows x64 download manager.
 
-## Current status
+## Status
 
-Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTorrent download paths are implemented, persistent state is in place, browser integration is wired end-to-end, and the Windows portable + installer packaging pipeline is operational. The project remains beta until release smoke testing, signing, and final real-world validation are complete.
+Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, categories, browser capture, video downloading, and persistence are implemented. The checklist below tracks implemented functionality separately from IDM-parity gaps and release validation.
 
-## Completed
+## Implemented features
 
-### Foundation
-- [x] Qt desktop shell
-- [x] CMake project
-- [x] vcpkg dependency manifest
-- [x] Windows x64 GitHub Actions build
-- [x] Portable ZIP artifact
-- [x] Persistent system tray / close-to-tray behavior
+### Foundation and UI
+- [x] Qt desktop application and CMake/vcpkg build
+- [x] Windows x64 GitHub Actions build workflow
+- [x] System tray icon and close-to-tray behavior
+- [x] Unified HTTP + BitTorrent history
+- [x] Sorting/filtering and download status/progress/speed display
+- [x] Right-click actions: resume, pause, cancel, remove, details, open, checksum
+- [x] Download details popup
+- [x] Persistent SQLite download history and resume state
 
 ### HTTP/HTTPS
-- [x] HTTP and HTTPS only; FTP is intentionally out of scope
-- [x] Multi-connection segmented downloads (1-8 connections)
-- [x] Range/segmentation with persistent .part.N files
-- [x] Pause/resume
-- [x] Retry/backoff
-- [x] Aggregate progress and speed reporting
-- [x] Persistent download history
+- [x] HTTP and HTTPS only; FTP/FTPS intentionally excluded
+- [x] Segmented downloads with configurable 1–8 connections
+- [x] Persistent segment files and range requests
+- [x] Pause, resume, cancel, and retry/backoff
 - [x] Resume after application restart
-- [x] Cancellation and cleanup
-- [x] Filename/history UI
-- [x] Optional SHA-256 checksum persistence and post-download integrity verification
+- [x] Global concurrent-download limit
+- [x] Global HTTP + BitTorrent bandwidth limit
+- [x] HTTP/SOCKS5-hostname proxy settings
+- [x] Optional SHA-256 expectation and post-download verification
+- [x] Filename sanitization and download destination handling
 
-### Download manager/UI
-- [x] Queueing and persistence
-- [x] Unified HTTP + BitTorrent history
-- [x] Sorting/filtering
-- [x] Pause/resume controls
-- [x] Right-click download context menu
-- [x] Remove from history with optional source-file deletion
-- [x] Torrent recheck control
-- [x] Full weekly scheduler/calendar UI with overnight windows
-- [x] Global HTTP + BitTorrent download bandwidth limiting
-- [x] Automatic file-type categories (Video, Music, Documents, Programs, Other)
-- [x] Configurable per-category destination folders
-- [x] Download completion actions (do nothing, open file, open folder)
+### Download organization and scheduling
+- [x] Automatic file-type categories: Video, Music, Documents, Programs, Other
+- [x] Configurable destination folder for each built-in category
+- [x] Download completion action: do nothing, open file, or open folder
+- [x] Weekly scheduler/calendar with per-day start/end windows
+- [x] Overnight scheduler windows
+- [x] Basic persisted queue of downloads awaiting an available slot
+- [ ] Multiple user-defined queues with independent concurrency, ordering, and start/stop controls
+- [ ] Editable category definitions, extension rules, and host-specific rules
+- [ ] Full per-download Properties dialog (edit URL, destination, filename, description, connection count, proxy, User-Agent, checksum)
+- [ ] Retry-failed and move-to-queue workflows
 
 ### BitTorrent
 - [x] libtorrent session
-- [x] Magnet links
-- [x] .torrent files
-- [x] DHT / trackers
-- [x] Piece verification / recheck
-- [x] Persistent torrent state / resume data
-- [x] Incomplete swarm availability warning and wait/continue choice
+- [x] Magnet links and .torrent files
+- [x] DHT and trackers
+- [x] Persistent torrent state and resume data
+- [x] Piece verification/recheck
+- [x] Incomplete-swarm availability warning with wait/continue choice
 - [x] Stall detection and health reporting
-- [x] Seeding ratio/time/forever/immediate policies
 - [x] Selective file priorities
-- [x] Windows magnet: protocol association (installer)
-- [x] Single-instance command forwarding for external protocol launches
+- [x] Seeding policies: ratio, time, forever, stop immediately
+- [x] Windows magnet protocol association in installer
+- [x] Single-instance forwarding for external protocol launches
 
-### Browser integration
-- [x] Manifest V3 extension
-- [x] Chromium native messaging
-- [x] Firefox native messaging
+### Browser and media
+- [x] Chromium Manifest V3 extension
+- [x] Firefox WebExtension/native-messaging path
+- [x] Native host registration and app IPC bridge
 - [x] Browser download interception
-- [x] HLS M3U8 capture
-- [x] YouTube capture via yt-dlp
-- [x] Direct media capture
-- [x] Per-user Windows native-host registration
-- [x] Stable Chromium extension identity
-- [x] Firefox extension identity
-- [x] yt-dlp nightly/stable channel selection
-- [x] Automatic yt-dlp update/retry path
-- [x] Browser extension ZIP packaging
-- [ ] Browser-extension store submission / signed distribution
+- [x] Context-menu download action
+- [x] Direct media capture and video-page overlay
+- [x] HLS/M3U8 capture
+- [x] YouTube capture through yt-dlp
+- [x] Video format/quality selection
+- [x] Bundled yt-dlp, FFmpeg, ffprobe, and Deno toolchain
+- [x] yt-dlp nightly/stable channel selection and update/retry path
+- [ ] Download all links from a page / selected text with filtering and deduplication
+- [ ] Site Grabber: bounded crawl, include/exclude filters, preview, saved projects, scheduling
+- [ ] Browser-extension store submission and signed distribution
 
-### Release
-- [x] Windows x64 automated build
-- [x] Portable ZIP
-- [x] Bundled browser extension
-- [x] Bundled yt-dlp/FFmpeg/Deno toolchain
-- [x] Windows installer (Inno Setup, per-user)
-- [x] Automated release smoke tests
-- [x] SHA-256 artifact checksums
+### IDM-parity features not yet implemented
+- [ ] IDM-style dynamic segment splitting and reuse of completed connections
+- [ ] Clipboard URL monitoring with a confirmation prompt
+- [ ] Drag-and-drop URL/file intake and drag-out support
+- [ ] ZIP archive preview before downloading/extracting
+- [ ] Configurable external antivirus scan on completion
+- [ ] Optional computer shutdown after the download queue completes
+- [ ] Built-in release updater with hash verification and safe installer handoff
+- [ ] Customizable columns, toolbar, and theme/skin system
+- [ ] Periodic synchronization queues for re-downloading changed files
+
+### Packaging and release
+- [x] Inno Setup per-user installer definition
+- [x] Portable ZIP packaging workflow definition
+- [x] Browser extension ZIP packaging workflow definition
+- [x] Release smoke-test script
+- [ ] Latest clean Windows CI run completing all smoke tests and packaging steps
+- [ ] Fresh installer and portable ZIP manually verified on a clean Windows environment
+- [ ] SHA-256 checksums generated and verified for a successful release build
 - [ ] Authenticode-signed binaries
 - [ ] Stable public release
+
+## Known exclusions
+- FTP/FTPS support: intentionally excluded.
+- Private-server credentials / saved site logins: intentionally excluded.
+- No credential fields should be added to the database, UI, logs, or settings.
 
 ## Architecture
 
 Qt 6 desktop UI -> DownloadManager -> HTTP engine (libcurl) / BitTorrent engine (libtorrent) -> SQLite persistence.
 
 Browser path: WebExtension -> native messaging -> BeatitBrowserHost -> local Qt IPC -> Beatit -> HTTP/yt-dlp.
+
+## IDM comparison
+
+See [IDM feature gap analysis](docs/IDM_FEATURE_GAP_ANALYSIS.md) for a feature-by-feature comparison, with intentionally excluded features kept out of scope.
 
 ## License
 
