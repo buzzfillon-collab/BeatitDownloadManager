@@ -72,6 +72,28 @@ jobs:
           New-Item -ItemType Directory -Force build/browser/native | Out-Null
           Copy-Item browser/extension/* build/browser/extension/ -Force
           Copy-Item browser/native/*.example.json build/browser/native/ -Force
+      - name: Validate browser extension manifests and JavaScript
+        shell: pwsh
+        run: |
+          foreach ($root in @("browser/extension", "browser/extension/firefox")) {
+            $manifestPath = Join-Path $root "manifest.json"
+            if (-not (Test-Path $manifestPath)) { throw "Missing extension manifest: $manifestPath" }
+            $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+            $scripts = @()
+            if ($manifest.background.service_worker) { $scripts += $manifest.background.service_worker }
+            if ($manifest.background.scripts) { $scripts += $manifest.background.scripts }
+            foreach ($contentScript in $manifest.content_scripts) { $scripts += $contentScript.js }
+            if ($manifest.action.default_popup) { $scripts += $manifest.action.default_popup }
+            if ($manifest.browser_action.default_popup) { $scripts += $manifest.browser_action.default_popup }
+            foreach ($asset in $scripts) {
+              if (-not (Test-Path (Join-Path $root $asset))) { throw "Missing extension asset: $root/$asset" }
+            }
+            Get-ChildItem $root -Filter *.js -File | ForEach-Object {
+              node --check $_.FullName
+              if ($LASTEXITCODE -ne 0) { throw "JavaScript syntax check failed: $($_.FullName)" }
+            }
+          }
+          node -e "JSON.parse(require('fs').readFileSync('browser/extension/manifest.json','utf8')); JSON.parse(require('fs').readFileSync('browser/extension/firefox/manifest.json','utf8'));"
       - name: Run release smoke tests
         shell: pwsh
         run: ./tests/smoke.ps1 -Root build
