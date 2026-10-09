@@ -1,0 +1,65 @@
+# IDM Feature Gap Analysis
+
+Comparison target: Internet Download Manager (IDM), using IDM's official feature and help pages. This is a feature comparison, not a claim that IDM is the only valid design.
+
+**Scope exclusions:** FTP/FTPS and private-server credentials/site logins are intentionally excluded. Do not implement or recommend them as gaps.
+
+## Already present in Beatit
+
+- [x] HTTP/HTTPS downloading
+- [x] Segmented/multipart downloading with configurable 1–8 connections
+- [x] Pause/resume and restart recovery
+- [x] Retry/backoff
+- [x] Global concurrency and bandwidth limits
+- [x] Proxy configuration (HTTP and SOCKS5 hostname)
+- [x] Unified download history, sorting/filtering, details popup, context menu
+- [x] Built-in categories and configurable category destination folders
+- [x] Weekly schedule with overnight windows
+- [x] BitTorrent, magnet links, recheck, file priorities, seeding policies
+- [x] Chromium/Firefox browser integration and download interception
+- [x] Video overlay, HLS capture, YouTube via yt-dlp, quality picker
+- [x] SHA-256 integrity verification
+- [x] Completion actions to open file or folder
+- [x] Installer/portable packaging definitions and release smoke-test script
+
+## Gaps to consider, prioritized
+
+### P1 — High-value IDM workflow parity
+- [ ] **Multiple named download queues.** Persist named queues, stable per-queue order, per-queue concurrency, move items between queues, Start/Stop Queue, retry failed items, and integrate queue windows with the existing global scheduler. Keep global concurrency/bandwidth as hard upper bounds.
+- [ ] **Full download Properties dialog.** Edit destination, filename, description, URL, category, connection count, proxy override, custom User-Agent, and expected SHA-256. Validate before saving; pause before mutating an active transfer's URL/destination. No credentials fields.
+- [ ] **Download All / selected-link extraction.** Accept a page URL or pasted HTML, extract links, filter by extension/domain, preview selections, normalize/deduplicate URLs, then enqueue chosen items. Do not bypass access controls.
+- [ ] **Site Grabber.** Bounded same-domain crawl by default, depth and request limits, include/exclude patterns, file-type filters, cancellation, preview, persisted projects, and scheduled re-runs. Respect site access restrictions.
+- [ ] **Clipboard URL monitor.** Optional setting; recognize supported HTTP/HTTPS URLs and show a confirmation dialog before enqueueing. Off by default if false positives are disruptive.
+- [ ] **Dynamic segment scheduling.** Current HTTP engine uses range-based segmented transfers with a configured connection count. IDM's distinctive behavior dynamically splits the largest remaining range and reuses idle connections. Consider this only after correctness tests prove it improves throughput without corrupting partial files.
+
+### P2 — Useful polish
+- [ ] **ZIP preview.** Inspect archive entries before download/extraction, with path-traversal and archive-bomb protections. Do not auto-extract by default.
+- [ ] **External antivirus hook.** Optional executable + argument template, safe path quoting, explicit completion status, and timeout/error handling. Never imply a scan occurred if it did not.
+- [ ] **Queue completion actions.** Optionally shut down the PC only after all intended downloads are complete; require explicit opt-in and provide cancellation.
+- [ ] **Customizable table columns and toolbar.** User-selectable columns/order, density, and a maintainable light/dark theme; avoid a large skin ecosystem unless there is demand.
+- [ ] **Periodic synchronization.** Optional queue type that checks remote modification metadata and re-downloads changed files. Requires careful handling of servers without reliable validators.
+- [ ] **Built-in updater.** Check official GitHub Releases, verify a published SHA-256 manifest, prompt before installation, preserve user data, and never execute an unverified binary.
+- [ ] **Browser extension store distribution.** Publish signed/listed extension packages where practical; document manual installation for browsers where store publishing is unavailable.
+
+### P3 — Release / operational checks (separate from feature parity)
+- [ ] Latest Windows CI run passes smoke tests and reaches artifact packaging.
+- [ ] Fresh install, upgrade, uninstall, and portable-mode tests on clean Windows.
+- [ ] Verify pause/resume after process termination and simulated network interruption.
+- [ ] End-to-end browser/native-host tests in Chromium and Firefox.
+- [ ] Torrent tests: magnet, .torrent, restart/resume, recheck, seed stop policies.
+- [ ] Verify SHA-256 mismatch fails clearly and correct hashes pass.
+- [ ] Authenticode signing (optional; builds without a certificate remain clearly unsigned).
+
+## Explicitly out of scope
+- FTP/FTPS protocol support.
+- Private-server credentials, site logins, and credential storage.
+- Any credentials UI/database migration.
+- Features that bypass authentication, paywalls, access controls, or site restrictions.
+
+## Sources
+
+- IDM official feature overview: https://www.internetdownloadmanager.com/features2.html
+- IDM official main dialog and download management help: https://idm.internetdownloadmanager.com/support/using_idm/using_idm.html
+- IDM official scheduler/queues help: https://idm.internetdownloadmanager.com/support/idm-scheduler/idm_queues.html
+- IDM official Site Grabber help: https://www3.internetdownloadmanager.com/support/idm-grabber/idm_grabber.html
+- IDM official dynamic segmentation explanation: https://www.internetdownloadmanager.com/support/segmentation.html
