@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Beatit</title><link rel="stylesheet" href="popup.css"></head>
+<body><header><span class="logo">ϟ</span><div><strong>Beatit</strong><small>Download Manager</small></div><span id="connection" class="status">Checking…</span></header>
+<main>
+<section class="toggles"><label><input id="intercept" type="checkbox"><span><b>Automatic interception</b><small>Send browser file downloads to Beatit</small></span></label><label><input id="mediaDetection" type="checkbox"><span><b>Media detection</b><small>Find HLS, DASH and direct media URLs</small></span></label></section>
+<section class="current"><div class="section-title">Current tab</div><div id="tabTitle" class="muted">Loading active tab…</div><div class="actions"><button id="downloadPage" class="primary">Download page</button><button id="captureMedia">Scan for media</button></div></section>
+<section><div class="section-title">Intercept file types</div><input id="extensions" class="text" spellcheck="false" placeholder="zip, exe, pdf, mp4, iso"><small class="hint">Comma-separated extensions. Use * to intercept every browser download.</small><button id="save" class="save">Save settings</button></section>
+<section><div class="section-title">Detected media <span id="mediaCount" class="count">0</span></div><div id="mediaList" class="media-list"><div class="empty">No media detected yet. Start playback or open a media page.</div></div><button id="clear" class="clear">Clear detected list</button></section>
+<footer>Local browser-to-app handoff · no cloud account</footer>
+</main><script src="popup.js"></script></body></html>
