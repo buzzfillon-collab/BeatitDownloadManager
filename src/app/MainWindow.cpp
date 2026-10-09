@@ -1184,8 +1184,10 @@ void MainWindow::showLinkExtractor() {
             activeReplies.remove(reply);
             const QByteArray html = reply->readAll();
             const auto netError = reply->error();
+            const QString finalHost = reply->url().host();
             reply->deleteLater();
-            if (!cancelled && netError == QNetworkReply::NoError)
+            const bool sameHost = finalHost.compare(*baseHost, Qt::CaseInsensitive) == 0;
+            if (!cancelled && netError == QNetworkReply::NoError && (!siteGrabber->isChecked() || sameHost))
                 addHtmlLinks(QString::fromUtf8(html), page, pageDepth.value(page.toString(QUrl::FullyEncoded),0));
             if (cancelled) return;
             if (!pendingPages.isEmpty() && pageCount < maxPages->value()) {
@@ -1479,8 +1481,9 @@ void MainWindow::runScheduledSiteGrabber() {
         connect(reply,&QNetworkReply::finished,this,[this,reply,page,baseHost,maxPages,maxDepth,doCrawl,include,exclude,extensionFilter,seenPages,seenLinks,pending,depths,links,count,finish,weakCrawl] {
             const QByteArray html=reply->readAll();
             const bool success=reply->error()==QNetworkReply::NoError;
+            const QString finalHost=reply->url().host();
             reply->deleteLater();
-            if (success) {
+            if (success && finalHost.compare(baseHost,Qt::CaseInsensitive)==0) {
                 static const QRegularExpression href(QStringLiteral(R"re(href\s*=\s*["']([^"']+)["'])re"),QRegularExpression::CaseInsensitiveOption);
                 auto it=href.globalMatch(QString::fromUtf8(html));
                 while(it.hasNext()) {
