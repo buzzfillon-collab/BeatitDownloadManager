@@ -25,7 +25,7 @@ Comparison target: Internet Download Manager (IDM), using IDM's official feature
 ## Gaps to consider, prioritized
 
 ### P1 — High-value IDM workflow parity
-- [ ] **Multiple named download queues.** Persist named queues, stable per-queue order, per-queue concurrency, move items between queues, Start/Stop Queue, retry failed items, and integrate queue windows with the existing global scheduler. Keep global concurrency/bandwidth as hard upper bounds.
+- [x] **Multiple named download queues.** Persist named queues, stable per-queue order, per-queue concurrency, move items between queues, Start/Stop Queue, retry failed items, and integrate queue windows with the existing global scheduler. Keep global concurrency/bandwidth as hard upper bounds.
 - [x] **Full download Properties dialog.** Edit destination, filename, description, URL, category, connection count, proxy override, custom User-Agent, and expected SHA-256. Validate before saving; pause before mutating an active transfer's URL/destination. No credentials fields.
 - [x] **Download All / selected-link extraction.** Accept a page URL or pasted HTML, extract links, filter by extension/domain, preview selections, normalize/deduplicate URLs, then enqueue chosen items. Do not bypass access controls.
 - [x] **Site Grabber.** Bounded same-domain crawl by default, depth and request limits, include/exclude patterns, file-type filters, cancellation, preview, persisted projects, and scheduled re-runs. Respect site access restrictions.
@@ -34,9 +34,9 @@ Comparison target: Internet Download Manager (IDM), using IDM's official feature
 
 ### P2 — Useful polish
 - [x] **ZIP preview.** Remote central-directory preview via bounded HTTP Range requests; flags path traversal and extreme compression ratios; does not extract.
-- [x] **External antivirus hook.** Optional executable + argument template, safe path quoting, explicit completion status, and timeout/error handling. Never imply a scan occurred if it did not.
-- [x] **Queue completion actions.** Optionally shut down the PC only after all intended downloads are complete; require explicit opt-in and provide cancellation.
-- [x] **Customizable table columns and toolbar.** User-selectable columns/order, density, and a maintainable light/dark theme; avoid a large skin ecosystem unless there is demand.
+- [x] **External antivirus hook.** Optional executable + argument template, safe argument handling, explicit completion status, and a 10-minute timeout. Never imply a scan occurred if it did not.
+- [x] **Queue completion actions.** Optionally offer PC shutdown after all listed downloads reach a terminal state; opt-in setting and a confirmation prompt precede a 60-second shutdown timer.
+- [x] **Customizable table columns and toolbar.** User-selectable column visibility and toolbar buttons, plus light/dark theme switching.
 - [x] **Periodic synchronization.** Optional queue type that checks remote modification metadata and re-downloads changed files. Requires careful handling of servers without reliable validators.
 - [x] **Built-in updater.** Check official GitHub Releases, verify a published SHA-256 manifest, prompt before installation, preserve user data, and never execute an unverified binary.
 - [ ] **Browser extension store distribution.** Publish signed/listed extension packages where practical; document manual installation for browsers where store publishing is unavailable.
