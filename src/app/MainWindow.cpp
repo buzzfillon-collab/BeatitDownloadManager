@@ -30,6 +30,8 @@
 #include <QMenu>
 #include <QPainter>
 #include <QProgressBar>
+#include <QPlainTextEdit>
+#include <QGridLayout>
 #include <QFrame>
 #include <QToolButton>
 #include <QSizePolicy>
@@ -927,27 +929,45 @@ void MainWindow::showSelectedProperties() {
 void MainWindow::showLinkExtractor() {
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("Download All / Site Grabber"));
-    dialog.resize(780, 600);
+    dialog.resize(900, 720);
     auto *root = new QVBoxLayout(&dialog);
     auto *urlRow = new QHBoxLayout();
     auto *pageUrl = new QLineEdit(&dialog);
-    pageUrl->setPlaceholderText(QStringLiteral("https://example.com/page"));
+    pageUrl->setPlaceholderText(QStringLiteral("https://example.com/page or paste HTML below"));
     auto *fetch = new QPushButton(QStringLiteral("Extract links"), &dialog);
-    urlRow->addWidget(pageUrl,1);
-    urlRow->addWidget(fetch);
+    auto *cancelScan = new QPushButton(QStringLiteral("Cancel scan"), &dialog);
+    cancelScan->setEnabled(false);
+    urlRow->addWidget(pageUrl,1); urlRow->addWidget(fetch); urlRow->addWidget(cancelScan);
     root->addLayout(urlRow);
-    auto *options = new QHBoxLayout();
-    auto *siteGrabber = new QCheckBox(QStringLiteral("Site Grabber: crawl same-host HTML pages"), &dialog);
-    auto *maxPages = new QSpinBox(&dialog);
-    maxPages->setRange(1,100);
-    maxPages->setValue(20);
-    options->addWidget(siteGrabber);
-    options->addWidget(new QLabel(QStringLiteral("Page limit"),&dialog));
-    options->addWidget(maxPages);
-    options->addStretch();
+
+    auto *htmlInput = new QPlainTextEdit(&dialog);
+    htmlInput->setPlaceholderText(QStringLiteral("Optional: paste HTML or selected page text here to extract links without fetching a page."));
+    htmlInput->setMaximumHeight(85);
+    root->addWidget(htmlInput);
+    auto *options = new QGridLayout();
+    auto *siteGrabber = new QCheckBox(QStringLiteral("Crawl same-host HTML pages"), &dialog);
+    auto *maxPages = new QSpinBox(&dialog); maxPages->setRange(1,500); maxPages->setValue(20);
+    auto *maxDepth = new QSpinBox(&dialog); maxDepth->setRange(0,20); maxDepth->setValue(3);
+    auto *includePattern = new QLineEdit(&dialog); includePattern->setPlaceholderText(QStringLiteral("Optional regex: include matching URLs"));
+    auto *excludePattern = new QLineEdit(&dialog); excludePattern->setPlaceholderText(QStringLiteral("Optional regex: exclude matching URLs"));
+    auto *extensions = new QLineEdit(&dialog); extensions->setPlaceholderText(QStringLiteral("Optional extensions: pdf,zip,mp4"));
+    auto *schedule = new QCheckBox(QStringLiteral("Repeat scan while this dialog remains open"), &dialog);
+    auto *scheduleHours = new QSpinBox(&dialog); scheduleHours->setRange(1,168); scheduleHours->setValue(24);
+    options->addWidget(siteGrabber,0,0,1,2);
+    options->addWidget(new QLabel(QStringLiteral("Page limit"),&dialog),1,0); options->addWidget(maxPages,1,1);
+    options->addWidget(new QLabel(QStringLiteral("Depth limit"),&dialog),1,2); options->addWidget(maxDepth,1,3);
+    options->addWidget(new QLabel(QStringLiteral("Include URL regex"),&dialog),2,0); options->addWidget(includePattern,2,1,1,3);
+    options->addWidget(new QLabel(QStringLiteral("Exclude URL regex"),&dialog),3,0); options->addWidget(excludePattern,3,1,1,3);
+    options->addWidget(new QLabel(QStringLiteral("File extensions"),&dialog),4,0); options->addWidget(extensions,4,1,1,3);
+    options->addWidget(schedule,5,0,1,2); options->addWidget(new QLabel(QStringLiteral("Every hours"),&dialog),5,2); options->addWidget(scheduleHours,5,3);
     root->addLayout(options);
-    auto *status = new QLabel(QStringLiteral("Paste a page URL, extract links, then select downloads."), &dialog);
-    root->addWidget(status);
+    auto *projectRow = new QHBoxLayout();
+    auto *saveProject = new QPushButton(QStringLiteral("Save project…"),&dialog);
+    auto *loadProject = new QPushButton(QStringLiteral("Load project…"),&dialog);
+    projectRow->addWidget(saveProject); projectRow->addWidget(loadProject); projectRow->addStretch();
+    root->addLayout(projectRow);
+    auto *status = new QLabel(QStringLiteral("Paste a page URL or HTML. Crawling is bounded by page and depth limits."), &dialog);
+    status->setWordWrap(true); root->addWidget(status);
     auto *links = new QListWidget(&dialog);
     links->setSelectionMode(QAbstractItemView::NoSelection);
     root->addWidget(links,1);
@@ -960,90 +980,133 @@ void MainWindow::showLinkExtractor() {
     actions->addWidget(selectAll); actions->addWidget(selectNone); actions->addStretch();
     actions->addWidget(downloadSelected); actions->addWidget(downloadAll); actions->addWidget(close);
     root->addLayout(actions);
+
     auto *network = new QNetworkAccessManager(&dialog);
-    auto *seenPages = new QSet<QString>();
-    auto *seenLinks = new QSet<QString>();
-    auto *pendingPages = new QStringList();
-    auto *pageCount = new int(0);
-    auto *baseHost = new QString();
+    QSet<QString> seenPages, seenLinks;
+    QStringList pendingPages;
+    QHash<QString,int> pageDepth;
+    QSet<QNetworkReply*> activeReplies;
+    int pageCount = 0;
+    QString baseHost;
+    bool cancelled = false;
     auto crawlFn = std::make_shared<std::function<void(QUrl)>>();
     std::weak_ptr<std::function<void(QUrl)>> weakCrawl = crawlFn;
+    auto acceptedByFilters = [includePattern,excludePattern,extensions](const QString &url) {
+        if (!includePattern->text().trimmed().isEmpty()) {
+            const QRegularExpression re(includePattern->text().trimmed(), QRegularExpression::CaseInsensitiveOption);
+            if (!re.isValid() || !re.match(url).hasMatch()) return false;
+        }
+        if (!excludePattern->text().trimmed().isEmpty()) {
+            const QRegularExpression re(excludePattern->text().trimmed(), QRegularExpression::CaseInsensitiveOption);
+            if (re.isValid() && re.match(url).hasMatch()) return false;
+        }
+        const QString filter = extensions->text().trimmed().toLower();
+        if (!filter.isEmpty()) {
+            const QString ext = QFileInfo(QUrl(url).path()).suffix().toLower();
+            QStringList allowed;
+            for (QString token : filter.split(',', Qt::SkipEmptyParts)) {
+                token = token.trimmed(); if (token.startsWith('.')) token.remove(0,1);
+                if (!token.isEmpty()) allowed.append(token);
+            }
+            if (allowed.isEmpty() || !allowed.contains(ext)) return false;
+        }
+        return true;
+    };
+    auto addHtmlLinks = [&,acceptedByFilters](const QString &html, const QUrl &page, int depth) {
+        static const QRegularExpression href(QStringLiteral(R"re(href\s*=\s*["']([^"']+)["'])re"), QRegularExpression::CaseInsensitiveOption);
+        auto it = href.globalMatch(html);
+        while (it.hasNext()) {
+            const auto match = it.next();
+            QUrl target = page.resolved(QUrl(match.captured(1).trimmed()));
+            target.setFragment(QString());
+            const QString scheme = target.scheme().toLower();
+            if (!target.isValid() || target.host().isEmpty() ||
+                (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))) continue;
+            const QString key = target.toString(QUrl::FullyEncoded);
+            if (!acceptedByFilters(key)) continue;
+            if (!seenLinks.contains(key)) {
+                seenLinks.insert(key);
+                auto *item = new QListWidgetItem(key, links);
+                item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+                item->setCheckState(Qt::Checked);
+            }
+            const QString path = target.path().toLower();
+            const bool htmlPage = path.isEmpty() || path.endsWith(QStringLiteral(".html")) ||
+                path.endsWith(QStringLiteral(".htm")) || path.endsWith(QStringLiteral(".php")) ||
+                path.endsWith(QStringLiteral(".asp")) || path.endsWith(QStringLiteral(".aspx"));
+            if (siteGrabber->isChecked() && depth < maxDepth->value() &&
+                target.host().compare(baseHost, Qt::CaseInsensitive) == 0 && htmlPage &&
+                !seenPages.contains(key) && pageCount + pendingPages.size() < maxPages->value()) {
+                pendingPages.append(key);
+                pageDepth.insert(key, depth + 1);
+            }
+        }
+    };
     *crawlFn = [&,weakCrawl](QUrl page) {
+        if (cancelled) return;
         page.setFragment(QString());
         const QString normalized = page.toString(QUrl::FullyEncoded);
-        if (seenPages->contains(normalized) || *pageCount >= maxPages->value()) {
-            if (pendingPages->isEmpty()) {
-                status->setText(QStringLiteral("Extracted %1 unique links from %2 pages.").arg(links->count()).arg(*pageCount));
-                fetch->setEnabled(true);
-            }
+        if (seenPages.contains(normalized) || pageCount >= maxPages->value()) {
+            if (pendingPages.isEmpty()) { status->setText(QStringLiteral("Extracted %1 unique links from %2 pages.").arg(links->count()).arg(pageCount)); fetch->setEnabled(true); cancelScan->setEnabled(false); }
             return;
         }
-        seenPages->insert(normalized);
-        ++(*pageCount);
-        status->setText(QStringLiteral("Fetching page %1 of %2: %3").arg(*pageCount).arg(maxPages->value()).arg(page.host()));
+        seenPages.insert(normalized);
+        ++pageCount;
+        status->setText(QStringLiteral("Fetching page %1 of %2 (depth %3): %4").arg(pageCount).arg(maxPages->value()).arg(pageDepth.value(normalized,0)).arg(page.host()));
         QNetworkRequest request(page);
         request.setRawHeader("User-Agent", "BeatitDownloadManager/0.1");
         request.setTransferTimeout(15000);
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
         QNetworkReply *reply = network->get(request);
+        activeReplies.insert(reply);
         connect(reply, &QNetworkReply::finished, &dialog, [&,reply,page,weakCrawl] {
+            activeReplies.remove(reply);
             const QByteArray html = reply->readAll();
             const auto netError = reply->error();
             reply->deleteLater();
-            if (netError == QNetworkReply::NoError) {
-                const QString text = QString::fromUtf8(html);
-                static const QRegularExpression href(QStringLiteral(R"re(href\s*=\s*["']([^"']+)["'])re"), QRegularExpression::CaseInsensitiveOption);
-                auto it = href.globalMatch(text);
-                while (it.hasNext()) {
-                    const auto match = it.next();
-                    QUrl target = page.resolved(QUrl(match.captured(1).trimmed()));
-                    target.setFragment(QString());
-                    const QString scheme = target.scheme().toLower();
-                    if (!target.isValid() || (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))) continue;
-                    const QString key = target.toString(QUrl::FullyEncoded);
-                    if (!seenLinks->contains(key)) {
-                        seenLinks->insert(key);
-                        auto *item = new QListWidgetItem(key, links);
-                        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
-                        item->setCheckState(Qt::Checked);
-                    }
-                    const QString path = target.path().toLower();
-                    const bool htmlPage = path.isEmpty() || path.endsWith(QStringLiteral(".html")) ||
-                        path.endsWith(QStringLiteral(".htm")) || path.endsWith(QStringLiteral(".php")) ||
-                        path.endsWith(QStringLiteral(".asp")) || path.endsWith(QStringLiteral(".aspx"));
-                    if (siteGrabber->isChecked() && target.host().compare(*baseHost, Qt::CaseInsensitive) == 0 &&
-                        htmlPage && !seenPages->contains(key) && *pageCount + pendingPages->size() < maxPages->value())
-                        pendingPages->append(key);
-                }
-            }
-            if (!pendingPages->isEmpty() && *pageCount < maxPages->value()) {
-                const QUrl next(pendingPages->takeFirst());
+            if (!cancelled && netError == QNetworkReply::NoError)
+                addHtmlLinks(QString::fromUtf8(html), page, pageDepth.value(page.toString(QUrl::FullyEncoded),0));
+            if (cancelled) return;
+            if (!pendingPages.isEmpty() && pageCount < maxPages->value()) {
+                const QUrl next(pendingPages.takeFirst());
                 if (auto nextFetch = weakCrawl.lock()) (*nextFetch)(next);
             } else {
                 status->setText(QStringLiteral("Extracted %1 unique links from %2 pages%3.")
-                    .arg(links->count()).arg(*pageCount).arg(netError == QNetworkReply::NoError ? QString() : QStringLiteral(" (some pages failed)")));
-                fetch->setEnabled(true);
+                    .arg(links->count()).arg(pageCount).arg(netError == QNetworkReply::NoError ? QString() : QStringLiteral(" (some pages failed)")));
+                fetch->setEnabled(true); cancelScan->setEnabled(false);
             }
         });
     };
-    connect(fetch, &QPushButton::clicked, &dialog, [&,crawlFn] {
-        const QUrl url(pageUrl->text().trimmed());
-        if (!url.isValid() || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https"))) {
-            QMessageBox::warning(&dialog, QStringLiteral("Invalid URL"), QStringLiteral("Enter a valid HTTP or HTTPS page URL."));
+    auto runExtraction = [&] {
+        cancelled = false;
+        if (!htmlInput->toPlainText().trimmed().isEmpty()) {
+            const QUrl base(pageUrl->text().trimmed());
+            const QUrl safeBase = base.isValid() && !base.host().isEmpty() ? base : QUrl(QStringLiteral("https://paste.invalid/"));
+            links->clear(); seenPages.clear(); seenLinks.clear(); pendingPages.clear(); pageDepth.clear(); pageCount = 1;
+            baseHost = safeBase.host();
+            addHtmlLinks(htmlInput->toPlainText(), safeBase, 0);
+            status->setText(QStringLiteral("Extracted %1 unique links from pasted HTML/text.").arg(links->count()));
             return;
         }
-        links->clear(); seenPages->clear(); seenLinks->clear(); pendingPages->clear(); *pageCount = 0;
-        *baseHost = url.host();
-        fetch->setEnabled(false);
-        pendingPages->append(url.toString(QUrl::FullyEncoded));
-        (*crawlFn)(QUrl(pendingPages->takeFirst()));
+        const QUrl url(pageUrl->text().trimmed());
+        if (!url.isValid() || url.host().isEmpty() || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https"))) {
+            QMessageBox::warning(&dialog, QStringLiteral("Invalid URL"), QStringLiteral("Enter a valid HTTP/HTTPS URL or paste HTML."));
+            return;
+        }
+        links->clear(); seenPages.clear(); seenLinks.clear(); pendingPages.clear(); pageDepth.clear(); pageCount = 0;
+        baseHost = url.host(); pageDepth.insert(url.toString(QUrl::FullyEncoded),0);
+        fetch->setEnabled(false); cancelScan->setEnabled(true);
+        (*crawlFn)(url);
+    };
+    connect(fetch, &QPushButton::clicked, &dialog, runExtraction);
+    connect(cancelScan, &QPushButton::clicked, &dialog, [&] {
+        cancelled = true; pendingPages.clear();
+        for (QNetworkReply *reply : activeReplies) if (reply) reply->abort();
+        activeReplies.clear(); fetch->setEnabled(true); cancelScan->setEnabled(false);
+        status->setText(QStringLiteral("Scan cancelled. Already extracted links are retained."));
     });
-    connect(selectAll, &QPushButton::clicked, &dialog, [links] {
-        for (int i=0;i<links->count();++i) links->item(i)->setCheckState(Qt::Checked);
-    });
-    connect(selectNone, &QPushButton::clicked, &dialog, [links] {
-        for (int i=0;i<links->count();++i) links->item(i)->setCheckState(Qt::Unchecked);
-    });
+    connect(selectAll, &QPushButton::clicked, &dialog, [links] { for (int i=0;i<links->count();++i) links->item(i)->setCheckState(Qt::Checked); });
+    connect(selectNone, &QPushButton::clicked, &dialog, [links] { for (int i=0;i<links->count();++i) links->item(i)->setCheckState(Qt::Unchecked); });
     auto enqueue = [this,links,status](bool all) {
         int count = 0;
         for (int i=0;i<links->count();++i) {
@@ -1060,11 +1123,65 @@ void MainWindow::showLinkExtractor() {
     };
     connect(downloadSelected, &QPushButton::clicked, &dialog, [enqueue] { enqueue(false); });
     connect(downloadAll, &QPushButton::clicked, &dialog, [enqueue] { enqueue(true); });
-    connect(close, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto saveValues = [&] {
+        QJsonObject obj;
+        obj.insert(QStringLiteral("url"),pageUrl->text());
+        obj.insert(QStringLiteral("html"),htmlInput->toPlainText());
+        obj.insert(QStringLiteral("siteGrabber"),siteGrabber->isChecked());
+        obj.insert(QStringLiteral("maxPages"),maxPages->value());
+        obj.insert(QStringLiteral("maxDepth"),maxDepth->value());
+        obj.insert(QStringLiteral("include"),includePattern->text());
+        obj.insert(QStringLiteral("exclude"),excludePattern->text());
+        obj.insert(QStringLiteral("extensions"),extensions->text());
+        obj.insert(QStringLiteral("schedule"),schedule->isChecked());
+        obj.insert(QStringLiteral("scheduleHours"),scheduleHours->value());
+        return obj;
+    };
+    connect(saveProject,&QPushButton::clicked,&dialog,[&] {
+        bool ok=false;
+        const QString name=QInputDialog::getText(&dialog,QStringLiteral("Save Site Grabber project"),QStringLiteral("Project name"),QLineEdit::Normal,QString(),&ok).trimmed();
+        if (!ok || name.isEmpty()) return;
+        QSettings cfg(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
+        cfg.setValue(QStringLiteral("siteGrabber/projects/%1").arg(name),QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));
+        status->setText(QStringLiteral("Saved project: %1").arg(name));
+    });
+    connect(loadProject,&QPushButton::clicked,&dialog,[&] {
+        QSettings cfg(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
+        cfg.beginGroup(QStringLiteral("siteGrabber/projects"));
+        const QStringList names=cfg.childKeys();
+        cfg.endGroup();
+        if (names.isEmpty()) { QMessageBox::information(&dialog,QStringLiteral("No saved projects"),QStringLiteral("Save a Site Grabber project first.")); return; }
+        bool ok=false;
+        const QString name=QInputDialog::getItem(&dialog,QStringLiteral("Load Site Grabber project"),QStringLiteral("Project"),names,0,false,&ok);
+        if (!ok || name.isEmpty()) return;
+        const auto doc=QJsonDocument::fromJson(cfg.value(QStringLiteral("siteGrabber/projects/%1").arg(name)).toByteArray());
+        if (!doc.isObject()) { QMessageBox::warning(&dialog,QStringLiteral("Invalid project"),QStringLiteral("The saved project could not be read.")); return; }
+        const auto obj=doc.object();
+        pageUrl->setText(obj.value(QStringLiteral("url")).toString());
+        htmlInput->setPlainText(obj.value(QStringLiteral("html")).toString());
+        siteGrabber->setChecked(obj.value(QStringLiteral("siteGrabber")).toBool());
+        maxPages->setValue(qBound(1,obj.value(QStringLiteral("maxPages")).toInt(20),500));
+        maxDepth->setValue(qBound(0,obj.value(QStringLiteral("maxDepth")).toInt(3),20));
+        includePattern->setText(obj.value(QStringLiteral("include")).toString());
+        excludePattern->setText(obj.value(QStringLiteral("exclude")).toString());
+        extensions->setText(obj.value(QStringLiteral("extensions")).toString());
+        schedule->setChecked(obj.value(QStringLiteral("schedule")).toBool());
+        scheduleHours->setValue(qBound(1,obj.value(QStringLiteral("scheduleHours")).toInt(24),168));
+        status->setText(QStringLiteral("Loaded project: %1").arg(name));
+    });
+    auto *rerunTimer = new QTimer(&dialog);
+    connect(&dialog,&QDialog::accepted,rerunTimer,&QTimer::stop);
+    connect(schedule,&QCheckBox::toggled,&dialog,[rerunTimer,scheduleHours](bool enabled) {
+        if (enabled) rerunTimer->start(scheduleHours->value()*60*60*1000); else rerunTimer->stop();
+    });
+    connect(scheduleHours,qOverload<int>(&QSpinBox::valueChanged),&dialog,[rerunTimer,schedule](int) {
+        if (schedule->isChecked()) rerunTimer->start(scheduleHours->value()*60*60*1000);
+    });
+    connect(rerunTimer,&QTimer::timeout,&dialog,[&] { if (schedule->isChecked() && fetch->isEnabled()) runExtraction(); });
+    if (schedule->isChecked()) rerunTimer->start(scheduleHours->value()*60*60*1000);
+    connect(close,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     dialog.exec();
-    delete seenPages; delete seenLinks; delete pendingPages; delete pageCount; delete baseHost;
 }
-
 void MainWindow::showSelectedDetails(){
     const QString id = selectedId();
     if (id.isEmpty()) return;
