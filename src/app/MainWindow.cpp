@@ -663,6 +663,8 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
         QStringLiteral("--concurrent-fragments"), QStringLiteral("4"),
         QStringLiteral("-o"), output
     };
+    if (!browserReferer_.isEmpty()) ytDlpPendingArgs_ << QStringLiteral("--referer") << browserReferer_;
+    if (!browserUserAgent_.isEmpty()) ytDlpPendingArgs_ << QStringLiteral("--user-agent") << browserUserAgent_;
     if (audioOnly) {
         ytDlpPendingArgs_ << QStringLiteral("-x")
                           << QStringLiteral("--audio-format") << QStringLiteral("mp3")
@@ -768,12 +770,15 @@ void MainWindow::chooseVideoFormat(const QString &url, bool youtube, const QStri
 
     auto *probe = new QProcess(this);
     probe->setProgram(executable);
-    probe->setArguments({
+    QStringList probeArgs{
         QStringLiteral("--dump-single-json"),
         QStringLiteral("--no-playlist"),
-        QStringLiteral("--skip-download"),
-        url
-    });
+        QStringLiteral("--skip-download")
+    };
+    if (!browserReferer_.isEmpty()) probeArgs << QStringLiteral("--referer") << browserReferer_;
+    if (!browserUserAgent_.isEmpty()) probeArgs << QStringLiteral("--user-agent") << browserUserAgent_;
+    probeArgs << url;
+    probe->setArguments(probeArgs);
     const QString toolsDir = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("tools"));
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert(QStringLiteral("PATH"), toolsDir + QStringLiteral(";") + env.value(QStringLiteral("PATH")));
@@ -876,8 +881,10 @@ void MainWindow::chooseVideoFormat(const QString &url, bool youtube, const QStri
     statusLabel_->setText(QStringLiteral("Inspecting available video formats…"));
 }
 
-void MainWindow::handleBrowserCapture(const QString &url, const QString &title, const QString &kind) {
+void MainWindow::handleBrowserCapture(const QString &url, const QString &title, const QString &kind, const QString &pageUrl, const QString &userAgent) {
     Q_UNUSED(title);
+    browserReferer_ = pageUrl;
+    browserUserAgent_ = userAgent;
     const QUrl parsed(url);
     const QString host = parsed.host().toLower();
     const QString path = parsed.path().toLower();
