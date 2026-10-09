@@ -23,7 +23,7 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 - [x] Segmented HTTP downloads: up to 32 stable byte ranges dispatched by configurable 1–8 concurrent workers
 - [x] Workers claim the next pending range immediately after finishing their current range
 - [x] Persistent segment files and range requests for resume
-- [x] Pause, resume, cancel, and retry/backoff
+- [x] Pause, resume, cancel, and up to five attempts for transient segment/network failures with exponential backoff; permanent HTTP errors fail immediately
 - [x] Resume after application restart
 - [x] Global concurrent-download limit
 - [x] Global HTTP + BitTorrent bandwidth limit
@@ -64,9 +64,9 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 - [x] Browser download interception
 - [x] Context-menu download action
 - [x] Direct media capture and video-page overlay
-- [x] HLS/M3U8 capture
+- [x] HLS/M3U8 and DASH/MPD manifest capture routed through yt-dlp
 - [x] YouTube capture through yt-dlp
-- [x] Video format/quality selection
+- [x] Video format/quality selection, concurrent media-fragment downloads, and retry/resume options
 - [x] Bundled yt-dlp, FFmpeg, ffprobe, and Deno toolchain
 - [x] yt-dlp nightly/stable channel selection and update/retry path
 - [x] Extract and deduplicate HTTP/HTTPS links from a page; select individual links or Download All
