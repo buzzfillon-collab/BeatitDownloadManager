@@ -49,12 +49,24 @@ int main(int argc, char *argv[]) {
         writeMessage(QJsonDocument(QJsonObject{{"ok", false}, {"error", "beatit-not-running"}}).toJson(QJsonDocument::Compact));
         return 1;
     }
-    socket.write(payload);
-    socket.flush();
-    if (!socket.waitForReadyRead(2500)) {
+    // Local sockets are streams, so delimit the JSON request explicitly.
+    QByteArray request = payload;
+    request.append('\n');
+    if (socket.write(request) != request.size() || !socket.waitForBytesWritten(1000)) {
+        writeMessage(QJsonDocument(QJsonObject{{"ok", false}, {"error", "beatit-write-failed"}}).toJson(QJsonDocument::Compact));
+        return 1;
+    }
+
+    QByteArray response;
+    while (!response.contains('\n') && response.size() <= 1024 * 1024) {
+        if (!socket.bytesAvailable() && !socket.waitForReadyRead(2500)) break;
+        response.append(socket.readAll());
+    }
+    const qsizetype newline = response.indexOf('\n');
+    if (newline < 0) {
         writeMessage(QJsonDocument(QJsonObject{{"ok", false}, {"error", "beatit-timeout"}}).toJson(QJsonDocument::Compact));
         return 1;
     }
-    writeMessage(socket.readAll());
+    writeMessage(response.left(newline).trimmed());
     return 0;
 }
