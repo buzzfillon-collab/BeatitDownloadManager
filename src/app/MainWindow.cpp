@@ -410,6 +410,12 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
                 statusLabel_->setText(QStringLiteral("Could not start antivirus scanner"));
                 process->deleteLater();
             });
+            QTimer::singleShot(10*60*1000, process, [this,process] {
+                if(process->state()!=QProcess::NotRunning) {
+                    process->kill();
+                    statusLabel_->setText(QStringLiteral("Antivirus scan timed out after 10 minutes"));
+                }
+            });
             process->start(scanner, args);
         }
         if (cfg.value(QStringLiteral("power/shutdownOnComplete"), false).toBool()) {
