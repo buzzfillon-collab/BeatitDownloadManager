@@ -656,6 +656,11 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
     ytDlpPendingAudioOnly_ = audioOnly;
     ytDlpPendingArgs_ = {
         QStringLiteral("--no-playlist"), QStringLiteral("--newline"),
+        QStringLiteral("--continue"),
+        QStringLiteral("--retries"), QStringLiteral("10"),
+        QStringLiteral("--fragment-retries"), QStringLiteral("10"),
+        QStringLiteral("--file-access-retries"), QStringLiteral("3"),
+        QStringLiteral("--concurrent-fragments"), QStringLiteral("4"),
         QStringLiteral("-o"), output
     };
     if (audioOnly) {
@@ -665,7 +670,7 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
     }
     if (!ytDlpFormat_.isEmpty() && !audioOnly)
         ytDlpPendingArgs_ << QStringLiteral("-f") << ytDlpFormat_;
-    if (youtube || kind == QStringLiteral("hls"))
+    if (youtube || kind == QStringLiteral("hls") || kind == QStringLiteral("dash"))
         ytDlpPendingArgs_ << QStringLiteral("--merge-output-format") << QStringLiteral("mp4");
     ytDlpPendingArgs_ << url;
 
@@ -744,7 +749,9 @@ void MainWindow::startYtDlpDownload(const QString &url, bool youtube, const QStr
                                   : (youtube ? QStringLiteral("YouTube download started")
                                   : (kind == QStringLiteral("hls")
                                       ? QStringLiteral("HLS download started")
-                                      : QStringLiteral("Stream download started"))));
+                                      : (kind == QStringLiteral("dash")
+                                          ? QStringLiteral("DASH download started")
+                                          : QStringLiteral("Stream download started")))));
 }
 
 void MainWindow::chooseVideoFormat(const QString &url, bool youtube, const QString &kind) {
@@ -879,10 +886,12 @@ void MainWindow::handleBrowserCapture(const QString &url, const QString &title, 
                          host.endsWith(QStringLiteral(".youtube.com")) ||
                          host == QStringLiteral("youtu.be");
     const bool hls = path.contains(QStringLiteral(".m3u8"));
+    const bool dash = path.endsWith(QStringLiteral(".mpd"));
 
-    if (youtube || hls || kind == QStringLiteral("youtube") || kind == QStringLiteral("hls") ||
-        kind == QStringLiteral("video") || kind == QStringLiteral("audio")) {
-        const QString streamKind = hls || kind == QStringLiteral("hls") ? QStringLiteral("hls") : kind;
+    if (youtube || hls || dash || kind == QStringLiteral("youtube") || kind == QStringLiteral("hls") ||
+        kind == QStringLiteral("dash") || kind == QStringLiteral("video") || kind == QStringLiteral("audio")) {
+        const QString streamKind = hls || kind == QStringLiteral("hls") ? QStringLiteral("hls")
+            : (dash || kind == QStringLiteral("dash") ? QStringLiteral("dash") : kind);
         if (kind == QStringLiteral("audio")) {
             startYtDlpDownload(url, youtube || kind == QStringLiteral("youtube"), streamKind, true);
         } else {
