@@ -3,7 +3,7 @@ let activeTab = null;
 const defaults = {
   interceptEnabled: true,
   mediaDetectionEnabled: true,
-  interceptExtensions: "7z, apk, avi, bin, bz2, csv, deb, dmg, doc, docx, exe, flac, flv, gz, iso, m4a, m4v, mkv, mov, mp3, mp4, msi, odt, ogg, pdf, pkg, ppt, pptx, rar, rpm, tar, torrent, txt, wav, webm, wma, wmv, xls, xlsx, xz, zip",
+  interceptExtensions: "*",
   detectedMedia: []
 };
 function send(message) {
@@ -69,6 +69,22 @@ $("save").addEventListener("click", async () => {
   });
   $("save").textContent = response?.ok ? "Saved ✓" : "Save failed";
   setTimeout(() => $("save").textContent = "Save settings", 1200);
+});
+$("addUrl").addEventListener("click", async () => {
+  const url = $("manualUrl").value.trim();
+  if (!/^https?:\/\//i.test(url)) {
+    $("manualUrl").setCustomValidity("Enter a valid HTTP or HTTPS URL.");
+    $("manualUrl").reportValidity();
+    return;
+  }
+  $("manualUrl").setCustomValidity("");
+  const response = await send({action:"download-url",url,pageUrl:activeTab?.url||"",title:activeTab?.title||"",kind:/\\.(m3u8)(?:$|[?#])/i.test(url)?"hls":/\\.mpd(?:$|[?#])/i.test(url)?"dash":/youtube\\.com|youtu\\.be|vimeo\\.com|twitch\\.tv|dailymotion\\.com|facebook\\.com|instagram\\.com|tiktok\\.com|streamable\\.com|twitter\\.com|x\\.com/i.test(url)?"youtube":"download"});
+  $("addUrl").textContent = response?.ok ? "Sent ✓" : "Failed";
+  if (response?.ok) $("manualUrl").value = "";
+  setTimeout(() => $("addUrl").textContent = "Add", 1300);
+});
+$("manualUrl").addEventListener("keydown", event => {
+  if (event.key === "Enter") $("addUrl").click();
 });
 $("downloadPage").addEventListener("click", async () => {
   if (!activeTab?.url || !/^https?:/i.test(activeTab.url)) return;
