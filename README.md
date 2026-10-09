@@ -78,7 +78,7 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 ### IDM-parity features not yet implemented
 - [ ] IDM-style adaptive splitting of the largest remaining range during an active transfer (existing 32-range worker scheduling is already implemented; still an outstanding throughput optimization)
 - [x] Optional clipboard URL monitoring with confirmation before enqueueing
-- [ ] Drag-and-drop URL/file intake and drag-out support
+- [x] Drag-and-drop URL, magnet, torrent, URL-list intake, and completed-file drag-out
 - [x] Remote ZIP central-directory preview via bounded HTTP Range requests, with path-traversal and extreme compression-ratio warnings
 - [x] Configurable external antivirus process on completion, with explicit process status
 - [x] Opt-in shutdown offer after the download queue completes
