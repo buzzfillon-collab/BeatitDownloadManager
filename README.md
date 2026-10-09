@@ -110,7 +110,7 @@ Browser path: WebExtension -> native messaging -> BeatitBrowserHost -> local Qt 
 
 ## IDM comparison
 
-See [IDM feature gap analysis](docs/IDM_FEATURE_GAP_ANALYSIS.md) for a feature-by-feature comparison, with intentionally excluded features kept out of scope.
+See [IDM feature gap analysis](docs/IDM_FEATURE_GAP_ANALYSIS.md) for a feature-by-feature comparison, with intentionally excluded features kept out of scope. See [QDM implementation notes](docs/QDM_IMPLEMENTATION_NOTES.md) for the feature comparison, upstream inspiration, and verification checklist.
 
 ## License
 
