@@ -16,6 +16,14 @@ struct PersistedDownload {
     qint64 updatedAt = 0;
     QString sha256;
     QString verification;
+    QString category;
+    QString description;
+    QString userAgent;
+    QString queueId;
+    int connectionCount = 0;
+    int proxyType = -1;
+    QString proxyHost;
+    int proxyPort = 0;
 };
 
 class DownloadDatabase final {
