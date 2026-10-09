@@ -33,6 +33,7 @@ private slots:
     void showSelectedDetails();
     void showSelectedProperties();
     void showLinkExtractor();
+    void runScheduledSiteGrabber();
     void showQueueManager();
 private:
     int selectedRow() const;
@@ -60,4 +61,5 @@ private:
     QHash<QString, qint64> totalBytes_;
     QHash<QString, qint64> startedAt_;
     bool reallyQuit_ = false;
+    bool siteGrabberScheduleRunning_ = false;
 };
