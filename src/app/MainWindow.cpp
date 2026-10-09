@@ -1232,6 +1232,7 @@ void MainWindow::runScheduledSiteGrabber() {
     const QString baseHost = startUrl.host();
     const int maxPages = qBound(1,cfg.value(QStringLiteral("maxPages")).toInt(20),500);
     const int maxDepth = qBound(0,cfg.value(QStringLiteral("maxDepth")).toInt(3),20);
+    const bool doCrawl = cfg.value(QStringLiteral("siteGrabber")).toBool();
     const QString include = cfg.value(QStringLiteral("include")).toString().trimmed();
     const QString exclude = cfg.value(QStringLiteral("exclude")).toString().trimmed();
     const QString extensionFilter = cfg.value(QStringLiteral("extensions")).toString().trimmed().toLower();
@@ -1261,7 +1262,7 @@ void MainWindow::runScheduledSiteGrabber() {
     };
     auto crawl = std::make_shared<std::function<void(QUrl)>>();
     std::weak_ptr<std::function<void(QUrl)>> weakCrawl = crawl;
-    *crawl = [this,network,baseHost,maxPages,maxDepth,include,exclude,extensionFilter,seenPages,seenLinks,pending,depths,links,count,finish,weakCrawl](QUrl page) {
+    *crawl = [this,network,baseHost,maxPages,maxDepth,doCrawl,include,exclude,extensionFilter,seenPages,seenLinks,pending,depths,links,count,finish,weakCrawl](QUrl page) {
         page.setFragment(QString());
         const QString key = page.toString(QUrl::FullyEncoded);
         if (seenPages->contains(key) || *count >= maxPages) {
@@ -1274,7 +1275,7 @@ void MainWindow::runScheduledSiteGrabber() {
         request.setTransferTimeout(15000);
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::NoLessSafeRedirectPolicy);
         QNetworkReply *reply = network->get(request);
-        connect(reply,&QNetworkReply::finished,this,[this,reply,page,baseHost,maxPages,maxDepth,include,exclude,extensionFilter,seenPages,seenLinks,pending,depths,links,count,finish,weakCrawl] {
+        connect(reply,&QNetworkReply::finished,this,[this,reply,page,baseHost,maxPages,maxDepth,doCrawl,include,exclude,extensionFilter,seenPages,seenLinks,pending,depths,links,count,finish,weakCrawl] {
             const QByteArray html=reply->readAll();
             const bool success=reply->error()==QNetworkReply::NoError;
             reply->deleteLater();
@@ -1292,8 +1293,7 @@ void MainWindow::runScheduledSiteGrabber() {
                     const QString path=target.path().toLower();
                     const bool htmlPage=path.isEmpty()||path.endsWith(QStringLiteral(".html"))||path.endsWith(QStringLiteral(".htm"))||path.endsWith(QStringLiteral(".php"))||path.endsWith(QStringLiteral(".aspx"));
                     const int depth=depths->value(page.toString(QUrl::FullyEncoded),0);
-                    if(cfg.value(QStringLiteral("siteGrabber/scheduleConfig")).isNull()) {}
-                    if(cfg.value(QStringLiteral("siteGrabber/scheduleEnabled"),false).toBool() && target.host().compare(baseHost,Qt::CaseInsensitive)==0 && htmlPage && depth<maxDepth && !seenPages->contains(url) && *count+pending->size()<maxPages){pending->append(url);depths->insert(url,depth+1);}
+                    if(doCrawl && target.host().compare(baseHost,Qt::CaseInsensitive)==0 && htmlPage && depth<maxDepth && !seenPages->contains(url) && *count+pending->size()<maxPages){pending->append(url);depths->insert(url,depth+1);}
                 }
             }
             if(!pending->isEmpty()&&*count<maxPages){const QUrl next(pending->takeFirst());if(auto fn=weakCrawl.lock())(*fn)(next);}
