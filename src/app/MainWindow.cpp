@@ -150,6 +150,11 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         statusLabel_->setText(allowed ? QStringLiteral("Scheduler window open") : QStringLiteral("Scheduler window closed"));
     });
     scheduler_->setEnabled(scheduler_->enabled());
+    auto *siteGrabberSchedulePoll = new QTimer(this);
+    siteGrabberSchedulePoll->setInterval(30000);
+    connect(siteGrabberSchedulePoll, &QTimer::timeout, this, [this] { runScheduledSiteGrabber(); });
+    siteGrabberSchedulePoll->start();
+    QTimer::singleShot(2500, this, [this] { runScheduledSiteGrabber(); });
 
     auto *root=new QWidget(this);
     auto *mainLayout=new QVBoxLayout(root);
@@ -951,8 +956,10 @@ void MainWindow::showLinkExtractor() {
     auto *includePattern = new QLineEdit(&dialog); includePattern->setPlaceholderText(QStringLiteral("Optional regex: include matching URLs"));
     auto *excludePattern = new QLineEdit(&dialog); excludePattern->setPlaceholderText(QStringLiteral("Optional regex: exclude matching URLs"));
     auto *extensions = new QLineEdit(&dialog); extensions->setPlaceholderText(QStringLiteral("Optional extensions: pdf,zip,mp4"));
-    auto *schedule = new QCheckBox(QStringLiteral("Repeat scan while this dialog remains open"), &dialog);
-    auto *scheduleHours = new QSpinBox(&dialog); scheduleHours->setRange(1,168); scheduleHours->setValue(24);
+    QSettings grabberSettings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    auto *schedule = new QCheckBox(QStringLiteral("Schedule recurring background scans"), &dialog);
+    schedule->setChecked(grabberSettings.value(QStringLiteral("siteGrabber/scheduleEnabled"), false).toBool());
+    auto *scheduleHours = new QSpinBox(&dialog); scheduleHours->setRange(1,168); scheduleHours->setValue(grabberSettings.value(QStringLiteral("siteGrabber/scheduleHours"),24).toInt());
     options->addWidget(siteGrabber,0,0,1,2);
     options->addWidget(new QLabel(QStringLiteral("Page limit"),&dialog),1,0); options->addWidget(maxPages,1,1);
     options->addWidget(new QLabel(QStringLiteral("Depth limit"),&dialog),1,2); options->addWidget(maxDepth,1,3);
@@ -1137,6 +1144,25 @@ void MainWindow::showLinkExtractor() {
         obj.insert(QStringLiteral("scheduleHours"),scheduleHours->value());
         return obj;
     };
+    auto persistSchedule = [&] {
+        grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleEnabled"), schedule->isChecked());
+        grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleHours"), scheduleHours->value());
+        grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleConfig"), QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));
+        if (schedule->isChecked())
+            grabberSettings.setValue(QStringLiteral("siteGrabber/nextRun"), QDateTime::currentSecsSinceEpoch() + scheduleHours->value()*3600);
+        else
+            grabberSettings.remove(QStringLiteral("siteGrabber/nextRun"));
+    };
+    connect(schedule,&QCheckBox::toggled,&dialog,[&](bool){persistSchedule();});
+    connect(scheduleHours,qOverload<int>(&QSpinBox::valueChanged),&dialog,[&](int){if(schedule->isChecked())persistSchedule();});
+    connect(pageUrl,&QLineEdit::textChanged,&dialog,[&](const QString&){if(schedule->isChecked())grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleConfig"),QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));});
+    connect(htmlInput,&QPlainTextEdit::textChanged,&dialog,[&]{if(schedule->isChecked())grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleConfig"),QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));});
+    connect(siteGrabber,&QCheckBox::toggled,&dialog,[&](bool){if(schedule->isChecked())grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleConfig"),QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));});
+    connect(maxPages,qOverload<int>(&QSpinBox::valueChanged),&dialog,[&](int){if(schedule->isChecked())grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleConfig"),QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));});
+    connect(maxDepth,qOverload<int>(&QSpinBox::valueChanged),&dialog,[&](int){if(schedule->isChecked())grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleConfig"),QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));});
+    connect(includePattern,&QLineEdit::textChanged,&dialog,[&](const QString&){if(schedule->isChecked())grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleConfig"),QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));});
+    connect(excludePattern,&QLineEdit::textChanged,&dialog,[&](const QString&){if(schedule->isChecked())grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleConfig"),QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));});
+    connect(extensions,&QLineEdit::textChanged,&dialog,[&](const QString&){if(schedule->isChecked())grabberSettings.setValue(QStringLiteral("siteGrabber/scheduleConfig"),QJsonDocument(saveValues()).toJson(QJsonDocument::Compact));});
     connect(saveProject,&QPushButton::clicked,&dialog,[&] {
         bool ok=false;
         const QString name=QInputDialog::getText(&dialog,QStringLiteral("Save Site Grabber project"),QStringLiteral("Project name"),QLineEdit::Normal,QString(),&ok).trimmed();
@@ -1182,6 +1208,102 @@ void MainWindow::showLinkExtractor() {
     connect(close,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     dialog.exec();
 }
+
+void MainWindow::runScheduledSiteGrabber() {
+    if (siteGrabberScheduleRunning_) return;
+    QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    if (!settings.value(QStringLiteral("siteGrabber/scheduleEnabled"), false).toBool()) return;
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    if (settings.value(QStringLiteral("siteGrabber/nextRun"), 0).toLongLong() > now) return;
+    const QJsonDocument doc = QJsonDocument::fromJson(settings.value(QStringLiteral("siteGrabber/scheduleConfig")).toByteArray());
+    if (!doc.isObject()) {
+        settings.setValue(QStringLiteral("siteGrabber/nextRun"), now + settings.value(QStringLiteral("siteGrabber/scheduleHours"),24).toInt()*3600);
+        return;
+    }
+    const QJsonObject cfg = doc.object();
+    const QUrl startUrl(cfg.value(QStringLiteral("url")).toString().trimmed());
+    if (!startUrl.isValid() || startUrl.host().isEmpty() ||
+        (startUrl.scheme() != QStringLiteral("http") && startUrl.scheme() != QStringLiteral("https")) ||
+        !cfg.value(QStringLiteral("html")).toString().trimmed().isEmpty()) {
+        settings.setValue(QStringLiteral("siteGrabber/nextRun"), now + settings.value(QStringLiteral("siteGrabber/scheduleHours"),24).toInt()*3600);
+        return;
+    }
+    siteGrabberScheduleRunning_ = true;
+    const QString baseHost = startUrl.host();
+    const int maxPages = qBound(1,cfg.value(QStringLiteral("maxPages")).toInt(20),500);
+    const int maxDepth = qBound(0,cfg.value(QStringLiteral("maxDepth")).toInt(3),20);
+    const QString include = cfg.value(QStringLiteral("include")).toString().trimmed();
+    const QString exclude = cfg.value(QStringLiteral("exclude")).toString().trimmed();
+    const QString extensionFilter = cfg.value(QStringLiteral("extensions")).toString().trimmed().toLower();
+    auto *network = new QNetworkAccessManager(this);
+    auto seenPages = std::make_shared<QSet<QString>>();
+    auto seenLinks = std::make_shared<QSet<QString>>();
+    auto pending = std::make_shared<QStringList>();
+    auto depths = std::make_shared<QHash<QString,int>>();
+    auto links = std::make_shared<QStringList>();
+    auto count = std::make_shared<int>(0);
+    auto finished = std::make_shared<bool>(false);
+    auto finish = [this,network,links,finished]() {
+        if (*finished) return;
+        *finished = true;
+        for (const QString &url : *links) {
+            const QString category = categoryForUrl(url);
+            const QString destination = categoryDestination(category);
+            QDir().mkpath(destination);
+            downloadManager_->addUrl(url,destination,category);
+        }
+        QSettings cfg(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
+        const int hours = qBound(1,cfg.value(QStringLiteral("siteGrabber/scheduleHours"),24).toInt(),168);
+        cfg.setValue(QStringLiteral("siteGrabber/nextRun"),QDateTime::currentSecsSinceEpoch()+hours*3600);
+        siteGrabberScheduleRunning_ = false;
+        statusLabel_->setText(QStringLiteral("Scheduled Site Grabber queued %1 links").arg(links->size()));
+        network->deleteLater();
+    };
+    auto crawl = std::make_shared<std::function<void(QUrl)>>();
+    std::weak_ptr<std::function<void(QUrl)>> weakCrawl = crawl;
+    *crawl = [this,network,baseHost,maxPages,maxDepth,include,exclude,extensionFilter,seenPages,seenLinks,pending,depths,links,count,finish,weakCrawl](QUrl page) {
+        page.setFragment(QString());
+        const QString key = page.toString(QUrl::FullyEncoded);
+        if (seenPages->contains(key) || *count >= maxPages) {
+            if (pending->isEmpty()) finish();
+            return;
+        }
+        seenPages->insert(key); ++(*count);
+        QNetworkRequest request(page);
+        request.setRawHeader("User-Agent","BeatitDownloadManager/0.1");
+        request.setTransferTimeout(15000);
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,QNetworkRequest::NoLessSafeRedirectPolicy);
+        QNetworkReply *reply = network->get(request);
+        connect(reply,&QNetworkReply::finished,this,[this,reply,page,baseHost,maxPages,maxDepth,include,exclude,extensionFilter,seenPages,seenLinks,pending,depths,links,count,finish,weakCrawl] {
+            const QByteArray html=reply->readAll();
+            const bool success=reply->error()==QNetworkReply::NoError;
+            reply->deleteLater();
+            if (success) {
+                static const QRegularExpression href(QStringLiteral(R"re(href\s*=\s*["']([^"']+)["'])re"),QRegularExpression::CaseInsensitiveOption);
+                auto it=href.globalMatch(QString::fromUtf8(html));
+                while(it.hasNext()) {
+                    QUrl target=page.resolved(QUrl(it.next().captured(1).trimmed())); target.setFragment(QString());
+                    if(!target.isValid()||target.host().isEmpty()||(target.scheme()!=QStringLiteral("http")&&target.scheme()!=QStringLiteral("https"))) continue;
+                    const QString url=target.toString(QUrl::FullyEncoded);
+                    if(!include.isEmpty()){const QRegularExpression re(include,QRegularExpression::CaseInsensitiveOption);if(!re.isValid()||!re.match(url).hasMatch())continue;}
+                    if(!exclude.isEmpty()){const QRegularExpression re(exclude,QRegularExpression::CaseInsensitiveOption);if(re.isValid()&&re.match(url).hasMatch())continue;}
+                    if(!extensionFilter.isEmpty()){QStringList exts;for(QString e:extensionFilter.split(',',Qt::SkipEmptyParts)){e=e.trimmed();if(e.startsWith('.'))e.remove(0,1);if(!e.isEmpty())exts.append(e);}if(exts.isEmpty()||!exts.contains(QFileInfo(target.path()).suffix().toLower()))continue;}
+                    if(!seenLinks->contains(url)){seenLinks->insert(url);links->append(url);}
+                    const QString path=target.path().toLower();
+                    const bool htmlPage=path.isEmpty()||path.endsWith(QStringLiteral(".html"))||path.endsWith(QStringLiteral(".htm"))||path.endsWith(QStringLiteral(".php"))||path.endsWith(QStringLiteral(".aspx"));
+                    const int depth=depths->value(page.toString(QUrl::FullyEncoded),0);
+                    if(cfg.value(QStringLiteral("siteGrabber/scheduleConfig")).isNull()) {}
+                    if(cfg.value(QStringLiteral("siteGrabber/scheduleEnabled"),false).toBool() && target.host().compare(baseHost,Qt::CaseInsensitive)==0 && htmlPage && depth<maxDepth && !seenPages->contains(url) && *count+pending->size()<maxPages){pending->append(url);depths->insert(url,depth+1);}
+                }
+            }
+            if(!pending->isEmpty()&&*count<maxPages){const QUrl next(pending->takeFirst());if(auto fn=weakCrawl.lock())(*fn)(next);}
+            else finish();
+        });
+    };
+    depths->insert(startUrl.toString(QUrl::FullyEncoded),0);
+    (*crawl)(startUrl);
+}
+
 void MainWindow::showSelectedDetails(){
     const QString id = selectedId();
     if (id.isEmpty()) return;
