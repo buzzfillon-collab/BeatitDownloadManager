@@ -78,7 +78,7 @@ $("addUrl").addEventListener("click", async () => {
     return;
   }
   $("manualUrl").setCustomValidity("");
-  const response = await send({action:"download-url",url,pageUrl:activeTab?.url||"",title:activeTab?.title||"",kind:/\\.(m3u8)(?:$|[?#])/i.test(url)?"hls":/\\.mpd(?:$|[?#])/i.test(url)?"dash":/youtube\\.com|youtu\\.be|vimeo\\.com|twitch\\.tv|dailymotion\\.com|facebook\\.com|instagram\\.com|tiktok\\.com|streamable\\.com|twitter\\.com|x\\.com/i.test(url)?"youtube":"download"});
+  const response = await send({action:"download-url",url,pageUrl:activeTab?.url||"",title:activeTab?.title||"",kind:/\.m3u8(?:$|[?#])/i.test(url)?"hls":/\.mpd(?:$|[?#])/i.test(url)?"dash":/youtube\.com|youtu\.be|vimeo\.com|twitch\.tv|dailymotion\.com|facebook\.com|instagram\.com|tiktok\.com|streamable\.com|twitter\.com|x\.com/i.test(url)?"youtube":"download"});
   $("addUrl").textContent = response?.ok ? "Sent ✓" : "Failed";
   if (response?.ok) $("manualUrl").value = "";
   setTimeout(() => $("addUrl").textContent = "Add", 1300);
