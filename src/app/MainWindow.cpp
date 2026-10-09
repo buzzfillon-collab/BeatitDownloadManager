@@ -1262,7 +1262,7 @@ void MainWindow::showLinkExtractor() {
     connect(loadProject,&QPushButton::clicked,&dialog,[&] {
         QSettings cfg(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
         cfg.beginGroup(QStringLiteral("siteGrabber/projects"));
-        const QStringList names=cfg.childKeys();
+        const QStringList names=cfg.childGroups();
         cfg.endGroup();
         if (names.isEmpty()) { QMessageBox::information(&dialog,QStringLiteral("No saved projects"),QStringLiteral("Save a Site Grabber project first.")); return; }
         bool ok=false;
