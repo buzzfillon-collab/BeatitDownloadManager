@@ -162,7 +162,7 @@ bool DownloadManager::verifyChecksum(const QString &id, QString *message) {
     return ok;
 }
 
-QString DownloadManager::addUrl(const QString &url, const QString &destination) {
+QString DownloadManager::addUrl(const QString &url, const QString &destination, const QString &category) {
     const QString id = QStringLiteral("download-%1").arg(nextId_++);
     PersistedDownload d;
     d.id = id;
@@ -172,7 +172,7 @@ QString DownloadManager::addUrl(const QString &url, const QString &destination) 
     const QString folderName = QFileInfo(destination).fileName();
     static const QSet<QString> knownCategories{QStringLiteral("Video"), QStringLiteral("Music"),
         QStringLiteral("Documents"), QStringLiteral("Programs"), QStringLiteral("Other")};
-    d.category = knownCategories.contains(folderName) ? folderName : QStringLiteral("Other");
+    d.category = !category.trimmed().isEmpty() ? category.trimmed()\n        : (knownCategories.contains(folderName) ? folderName : QStringLiteral("Other"));
     d.connectionCount = 0; // Zero means inherit the global HTTP connection setting.
     d.proxyType = -1;       // Negative means inherit the global proxy setting.
     d.queueId = QStringLiteral("main");
