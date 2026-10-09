@@ -169,6 +169,10 @@ SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QStrin
     const CURLcode code=curl_easy_perform(curl);
     long response=0; curl_easy_getinfo(curl,CURLINFO_RESPONSE_CODE,&response);
     file.flush(); file.close(); curl_easy_cleanup(curl);
+    // Progress counts bytes from in-flight attempts. The caller subtracts this
+    // amount when a failed/paused attempt is discarded, so retries and resumes
+    // report retained bytes rather than cumulative bytes ever received.
+    out.bytes=ctx.written;
     if(owner->isCancelRequested()){out.cancelled=true;return out;}
     if(code!=CURLE_OK){
         out.error=QString::fromUtf8(curl_easy_strerror(code));
@@ -330,7 +334,14 @@ void HttpDownloader::run(const QString &url,const QString &destination){
                     for(int attempt=0;attempt<5&&!isCancelRequested();++attempt) {
                         result=fetchSegment(this,url,segmentFiles[index],first,last,
                                             &aggregateDone,&lastReportBytes,&lastReportMs);
-                        if(result.ok||result.cancelled||!result.retryable) break;
+                        if(result.ok) break;
+                        if(result.bytes > 0) {
+                            const qint64 retained = aggregateDone.fetch_sub(result.bytes) - result.bytes;
+                            lastReportBytes.store(retained);
+                            lastReportMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now().time_since_epoch()).count());
+                        }
+                        if(result.cancelled||!result.retryable) break;
                         if(attempt<4) interruptibleBackoff(500 * (1 << attempt), this);
                     }
                     if(result.cancelled) break;
