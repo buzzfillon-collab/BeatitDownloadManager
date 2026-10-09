@@ -34,7 +34,7 @@ $mainWindow = Get-Content (Join-Path $RepoRoot "src/app/MainWindow.cpp") -Raw
 if ($mainWindow -notmatch "categories/|After download completes|completion/action") {
     throw "Category routing or completion-action implementation missing."
 }
-if ($mainWindow -match 'scheme\(\).*ftp|startsWith\(QStringLiteral\("ftp://")') {
+if ($mainWindow -match 'ftp://') {
     throw "FTP URL intake must remain out of scope."
 }
 
