@@ -37,6 +37,20 @@ if ($mainWindow -notmatch "categories/|After download completes|completion/actio
 if ($mainWindow -match 'ftp://') {
     throw "FTP URL intake must remain out of scope."
 }
+$databaseHeader = Get-Content (Join-Path $RepoRoot "src/core/DownloadDatabase.h") -Raw
+$databaseSource = Get-Content (Join-Path $RepoRoot "src/core/DownloadDatabase.cpp") -Raw
+foreach ($column in @("category", "description", "user_agent", "queue_id", "connection_count", "proxy_type", "proxy_host", "proxy_port")) {
+    $needle = 'ensureColumn(db, "' + $column + '"'
+    if (-not $databaseSource.Contains($needle)) {
+        throw "SQLite migration missing column: $column"
+    }
+}
+if ($databaseSource -notmatch "PRAGMA user_version=3" -or $databaseSource -notmatch "BEGIN IMMEDIATE" -or $databaseSource -notmatch "ROLLBACK") {
+    throw "Transactional SQLite schema migration checks failed."
+}
+if ($databaseHeader -match "password|credential") {
+    throw "Private-server credential fields must remain out of scope."
+}
 
 $manifest = Get-Content (Join-Path $root "browser/extension/manifest.json") -Raw | ConvertFrom-Json
 if ($manifest.manifest_version -ne 3) { throw "Browser extension is not MV3." }
