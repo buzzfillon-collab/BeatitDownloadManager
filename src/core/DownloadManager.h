@@ -14,7 +14,7 @@ public:
     explicit DownloadManager(QObject *parent = nullptr);
     ~DownloadManager() override;
 
-    QString addUrl(const QString &url, const QString &destination);
+    QString addUrl(const QString &url, const QString &destination, const QString &category = {});
     void pause(const QString &id);
     void cancel(const QString &id);
     void remove(const QString &id, bool deleteFile = false);
