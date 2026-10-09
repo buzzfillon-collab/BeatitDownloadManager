@@ -114,6 +114,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     send({ action: "status" }).then(sendResponse);
     return true;
   }
+  if (message.action === "media-detected") {
+    const url = message.url;
+    if (!isHttp(url)) { sendResponse({ ok: false, error: "invalid-url" }); return; }
+    rememberMedia({
+      url,
+      pageUrl: message.pageUrl || sender.tab?.url || "",
+      title: message.title || sender.tab?.title || "",
+      kind: message.kind || classify(url)
+    }).then(() => sendResponse({ ok: true }));
+    return true;
+  }
   if (message.action === "clear-media") {
     chrome.storage.local.set({ detectedMedia: [] }).then(() => sendResponse({ ok: true }));
     return true;
