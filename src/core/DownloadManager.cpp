@@ -93,8 +93,9 @@ bool DownloadManager::setQueueConcurrency(const QString&id,int count) {
 bool DownloadManager::setQueuePaused(const QString&id,bool paused) {
     if(!queues_.contains(id))return false;queues_[id].paused=paused;
     if(!database_.saveQueue(queues_.value(id)))return false;
-    if(paused){const auto ids=active_.keys();for(const QString&t:ids)if(queued_.value(t).queueId==id)pause(t);}
-    else {for(auto it=queued_.begin();it!=queued_.end();++it)if(it->queueId==id&&it->status=="Paused"){it->status="Queued";database_.save(it.value());}startNextQueued();}
+    // Stopping a queue prevents new tasks from starting; already-running tasks finish normally.
+    // Do not resume manually paused tasks when the queue is started again.
+    if (!paused) startNextQueued();
     return true;
 }
 bool DownloadManager::moveToQueue(const QString&downloadId,const QString&queueId) {
