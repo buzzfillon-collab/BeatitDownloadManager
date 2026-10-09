@@ -17,6 +17,7 @@ Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTo
 - [x] Persistent system tray / close-to-tray behavior
 
 ### HTTP/HTTPS
+- [x] HTTP and HTTPS only; FTP is intentionally out of scope
 - [x] Multi-connection segmented downloads (1-8 connections)
 - [x] Range/segmentation with persistent .part.N files
 - [x] Pause/resume
@@ -38,6 +39,9 @@ Beatit is in the **beta / integration-hardening** stage. The core HTTP and BitTo
 - [x] Torrent recheck control
 - [x] Full weekly scheduler/calendar UI with overnight windows
 - [x] Global HTTP + BitTorrent download bandwidth limiting
+- [x] Automatic file-type categories (Video, Music, Documents, Programs, Other)
+- [x] Configurable per-category destination folders
+- [x] Download completion actions (do nothing, open file, open folder)
 
 ### BitTorrent
 - [x] libtorrent session
