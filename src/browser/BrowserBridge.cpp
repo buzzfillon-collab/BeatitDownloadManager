@@ -5,7 +5,19 @@
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QUrl>
-namespace { constexpr auto kServerName = "BeatitBrowserBridge"; constexpr auto kMaxMessageBytes = 1024 * 1024; }
+namespace {
+constexpr auto kServerName = "BeatitBrowserBridge";
+constexpr auto kMaxMessageBytes = 1024 * 1024;
+constexpr auto kPendingProperty = "beatit.pending-message";
+
+void sendJsonLine(QLocalSocket *socket, const QJsonObject &object) {
+    if (!socket) return;
+    QByteArray bytes = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    bytes.append('\n');
+    socket->write(bytes);
+    socket->flush();
+}
+}
 BrowserBridge::BrowserBridge(QObject *parent) : QObject(parent), server_(new QLocalServer(this)) {
     connect(server_, &QLocalServer::newConnection, this, &BrowserBridge::acceptConnection);
 }
@@ -29,12 +41,32 @@ void BrowserBridge::acceptConnection() {
 void BrowserBridge::readSocket() {
     auto *socket = qobject_cast<QLocalSocket *>(sender());
     if (!socket) return;
-    if (socket->bytesAvailable() > kMaxMessageBytes) { socket->disconnectFromServer(); return; }
-    const auto document = QJsonDocument::fromJson(socket->readAll());
-    if (!document.isObject()) {
-        socket->write(QJsonDocument(QJsonObject{{"ok", false}, {"error", "invalid-json"}}).toJson(QJsonDocument::Compact));
-        socket->disconnectFromServer(); return;
+
+    QByteArray pending = socket->property(kPendingProperty).toByteArray();
+    pending.append(socket->readAll());
+    if (pending.size() > kMaxMessageBytes) {
+        sendJsonLine(socket, QJsonObject{{"ok", false}, {"error", "message-too-large"}});
+        socket->disconnectFromServer();
+        return;
     }
+
+    // QLocalSocket is a byte stream: one write on the client is not guaranteed
+    // to arrive as one readyRead event. Use a newline delimiter rather than
+    // parsing arbitrary partial chunks as complete JSON.
+    const qsizetype newline = pending.indexOf('\n');
+    if (newline < 0) {
+        socket->setProperty(kPendingProperty, pending);
+        return;
+    }
+
+    const QByteArray message = pending.left(newline).trimmed();
+    const auto document = QJsonDocument::fromJson(message);
+    if (!document.isObject()) {
+        sendJsonLine(socket, QJsonObject{{"ok", false}, {"error", "invalid-json"}});
+        socket->disconnectFromServer();
+        return;
+    }
+    socket->setProperty(kPendingProperty, QVariant());
     processMessage(socket, document.object());
 }
 void BrowserBridge::processMessage(QLocalSocket *socket, const QJsonObject &message) {
@@ -43,19 +75,18 @@ void BrowserBridge::processMessage(QLocalSocket *socket, const QJsonObject &mess
     const QString kind = message.value(QStringLiteral("kind")).toString(QStringLiteral("page"));
     const QUrl parsed(url);
     if (!parsed.isValid() || (parsed.scheme() != QStringLiteral("http") && parsed.scheme() != QStringLiteral("https"))) {
-        socket->write(QJsonDocument(QJsonObject{{"ok", false}, {"error", "invalid-url"}}).toJson(QJsonDocument::Compact));
+        sendJsonLine(socket, QJsonObject{{"ok", false}, {"error", "invalid-url"}});
         socket->disconnectFromServer(); return;
     }
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const qint64 last = recentCaptures_.value(url, 0);
     if (last > 0 && now - last < 15000) {
-        socket->write(QJsonDocument(QJsonObject{{"ok", true}, {"duplicate", true}})
-                          .toJson(QJsonDocument::Compact));
+        sendJsonLine(socket, QJsonObject{{"ok", true}, {"duplicate", true}});
         socket->disconnectFromServer();
         return;
     }
     recentCaptures_[url] = now;
     emit captureRequested(url, title, kind);
-    socket->write(QJsonDocument(QJsonObject{{"ok", true}}).toJson(QJsonDocument::Compact));
+    sendJsonLine(socket, QJsonObject{{"ok", true}});
     socket->disconnectFromServer();
 }
