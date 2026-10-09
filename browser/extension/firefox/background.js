@@ -82,7 +82,7 @@ async function capture(url, options = {}) {
     title: options.title || "",
     kind: options.kind || "download"
   };
-  if (options.userAgent) payload.userAgent = options.userAgent;
+  payload.userAgent = options.userAgent || navigator.userAgent || "";
   if (options.referer) payload.referer = options.referer;
   if (options.cookies) payload.cookies = options.cookies;
   return send(payload);
