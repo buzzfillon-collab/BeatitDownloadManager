@@ -111,12 +111,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "media-detected") {
     const url = message.url;
     if (!isHttp(url)) { sendResponse({ ok: false, error: "invalid-url" }); return; }
-    rememberMedia({
-      url,
-      pageUrl: message.pageUrl || sender.tab?.url || "",
-      title: message.title || sender.tab?.title || "",
-      kind: message.kind || classify(url)
-    }).then(() => sendResponse({ ok: true }));
+    settings().then(config => config.mediaDetectionEnabled
+      ? rememberMedia({
+          url,
+          pageUrl: message.pageUrl || sender.tab?.url || "",
+          title: message.title || sender.tab?.title || "",
+          kind: message.kind || classify(url)
+        }).then(() => sendResponse({ ok: true }))
+      : sendResponse({ ok: true, disabled: true }));
     return true;
   }
   if (message.action === "clear-media") {
@@ -127,7 +129,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     chrome.storage.local.set({
       interceptEnabled: message.interceptEnabled !== false,
       mediaDetectionEnabled: message.mediaDetectionEnabled !== false,
-      interceptExtensions: String(message.interceptExtensions || DEFAULT_EXTENSIONS.join(","))
+      interceptExtensions: String(message.interceptExtensions ?? DEFAULT_EXTENSIONS.join(","))
     }).then(() => sendResponse({ ok: true }));
     return true;
   }
@@ -198,6 +200,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete" || !tab?.url || !isHttp(tab.url)) return;
   const kind = classify(tab.url);
   if (kind === "youtube" || kind === "video-page") {
-    void rememberMedia({ url: tab.url, pageUrl: tab.url, title: tab.title || "", kind });
+    void settings().then(config => {
+      if (config.mediaDetectionEnabled)
+        return rememberMedia({ url: tab.url, pageUrl: tab.url, title: tab.title || "", kind });
+    });
   }
 });
