@@ -230,6 +230,14 @@ bool DownloadManager::updateProperties(const PersistedDownload &properties) {
         }
         if (!found) return false;
     }
+    updated.sha256 = properties.sha256.trimmed().toLower();
+    if (!updated.sha256.isEmpty() &&
+        (updated.sha256.size() != 64 || updated.sha256.contains(QRegularExpression(QStringLiteral("[^0-9a-f]")))))
+        return false;
+    if (properties.proxyType < -1 || properties.proxyType > 2 ||
+        ((properties.proxyType == 1 || properties.proxyType == 2) &&
+         (properties.proxyHost.trimmed().isEmpty() || properties.proxyPort <= 0 || properties.proxyPort > 65535)))
+        return false;
     const QUrl sourceUrl(properties.source.trimmed());
     if (!sourceUrl.isValid() || (sourceUrl.scheme() != QStringLiteral("http") &&
         sourceUrl.scheme() != QStringLiteral("https"))) return false;
@@ -282,10 +290,10 @@ bool DownloadManager::updateProperties(const PersistedDownload &properties) {
     updated.category = properties.category.trimmed().isEmpty() ? QStringLiteral("Other") : properties.category.trimmed();
     updated.description = properties.description.trimmed();
     updated.connectionCount = qBound(1, properties.connectionCount, 8);
-    updated.sha256 = properties.sha256.trimmed().toLower();
-    if (!updated.sha256.isEmpty() &&
-        (updated.sha256.size() != 64 || updated.sha256.contains(QRegularExpression(QStringLiteral("[^0-9a-f]")))))
-        return false;
+    updated.userAgent = properties.userAgent.trimmed();
+    updated.proxyType = properties.proxyType;
+    updated.proxyHost = properties.proxyHost.trimmed();
+    updated.proxyPort = qBound(0, properties.proxyPort, 65535);
     updated.verification.clear();
     if (!database_.save(updated)) return false;
     if (it != queued_.end()) it.value() = updated;
