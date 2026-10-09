@@ -45,7 +45,7 @@ foreach ($column in @("category", "description", "user_agent", "queue_id", "conn
         throw "SQLite migration missing column: $column"
     }
 }
-if ($databaseSource -notmatch "PRAGMA user_version=3" -or $databaseSource -notmatch "BEGIN IMMEDIATE" -or $databaseSource -notmatch "ROLLBACK") {
+if ($databaseSource -notmatch "PRAGMA user_version=4" -or $databaseSource -notmatch "BEGIN IMMEDIATE" -or $databaseSource -notmatch "ROLLBACK" -or $databaseSource -notmatch "CREATE TABLE IF NOT EXISTS download_queues" -or $databaseSource -notmatch "loadQueues|saveQueue|removeQueue") {
     throw "Transactional SQLite schema migration checks failed."
 }
 if ($databaseHeader -match "password|credential") {

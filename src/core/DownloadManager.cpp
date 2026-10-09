@@ -9,10 +9,17 @@
 #include <QTimer>
 #include <QUrl>
 #include <QRegularExpression>
-#include <QCryptographicHash>\n#include <QSet>
+#include <QCryptographicHash>
+#include <QSet>
+#include <QStringList>
+#include <QUuid>
+#include <algorithm>
+#include <climits>
 
 DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
     database_.open();
+    for (const auto &queue : database_.loadQueues()) queues_.insert(queue.id, queue);
+    if (!queues_.contains(QStringLiteral("main"))) { DownloadQueue q; q.id="main"; q.name="Main"; q.maxActive=maxActive_; database_.saveQueue(q); queues_.insert(q.id,q); }
 
     for (const auto &stored : database_.loadHistory()) {
         bool ok = false;
@@ -59,10 +66,51 @@ void DownloadManager::persist(const QString &id, const QString &status, qint64 d
 
 void DownloadManager::setMaxActive(int count) {
     maxActive_ = qMax(1, count);
+    if (queues_.contains(QStringLiteral("main"))) { queues_["main"].maxActive=maxActive_; database_.saveQueue(queues_.value("main")); }
     updateActiveBandwidthLimits();
     startNextQueued();
 }
 
+
+QVector<DownloadQueue> DownloadManager::queues() const {
+    QVector<DownloadQueue> v; for (const auto &q : queues_) v.push_back(q);
+    std::sort(v.begin(),v.end(),[](const DownloadQueue&a,const DownloadQueue&b){return a.sortOrder==b.sortOrder?a.id<b.id:a.sortOrder<b.sortOrder;}); return v;
+}
+bool DownloadManager::createQueue(const QString &name) {
+    const QString n=name.trimmed(); if(n.isEmpty())return false;
+    for(const auto&q:queues_)if(q.name.compare(n,Qt::CaseInsensitive)==0)return false;
+    DownloadQueue q; q.id="queue-"+QUuid::createUuid().toString(QUuid::WithoutBraces); q.name=n; q.maxActive=2; q.sortOrder=queues_.size();
+    if(!database_.saveQueue(q))return false;queues_.insert(q.id,q);startNextQueued();return true;
+}
+bool DownloadManager::renameQueue(const QString&id,const QString&name) {
+    const QString n=name.trimmed();if(!queues_.contains(id)||n.isEmpty())return false;
+    for(const auto&q:queues_)if(q.id!=id&&q.name.compare(n,Qt::CaseInsensitive)==0)return false;
+    queues_[id].name=n;return database_.saveQueue(queues_.value(id));
+}
+bool DownloadManager::setQueueConcurrency(const QString&id,int count) {
+    if(!queues_.contains(id))return false;queues_[id].maxActive=qBound(1,count,32);
+    if(!database_.saveQueue(queues_.value(id)))return false;startNextQueued();return true;
+}
+bool DownloadManager::setQueuePaused(const QString&id,bool paused) {
+    if(!queues_.contains(id))return false;queues_[id].paused=paused;
+    if(!database_.saveQueue(queues_.value(id)))return false;
+    // Stopping a queue prevents new tasks from starting; already-running tasks finish normally.
+    // Do not resume manually paused tasks when the queue is started again.
+    startNextQueued();
+    return true;
+}
+bool DownloadManager::moveToQueue(const QString&downloadId,const QString&queueId) {
+    if(!queues_.contains(queueId)||active_.contains(downloadId)||!queued_.contains(downloadId))return false;
+    auto&d=queued_[downloadId];d.queueId=queueId; // Preserve manually paused state when moving queues.
+    const bool ok=database_.save(d);startNextQueued();return ok;
+}
+void DownloadManager::retryFailedInQueue(const QString&queueId) {
+    for(auto it=queued_.begin();it!=queued_.end();++it)if((queueId.isEmpty()||it->queueId==queueId)&&it->status=="Failed"){it->status="Queued";it->error.clear();database_.save(it.value());}
+    startNextQueued();
+}
+int DownloadManager::activeCountForQueue(const QString&id) const {
+    int n=0;for(auto it=active_.cbegin();it!=active_.cend();++it)if(queued_.value(it.key()).queueId==id)++n;return n;
+}
 void DownloadManager::setHttpConnections(int count) {
     httpConnections_ = qBound(1, count, 8);
 }
@@ -190,16 +238,15 @@ QString DownloadManager::addUrl(const QString &url, const QString &destination, 
 void DownloadManager::startNextQueued() {
     if (!schedulerAllowed_) return;
     while (active_.size() < maxActive_) {
-        QString id;
-        for (auto it = queued_.cbegin(); it != queued_.cend(); ++it) {
-            if (it->status == QStringLiteral("Queued")) {
-                id = it.key();
-                break;
-            }
-        }
-        if (id.isEmpty()) return;
-
-        const auto d = queued_.value(id);
+        QString id; QStringList ids=queued_.keys();
+        std::sort(ids.begin(),ids.end(),[](const QString&a,const QString&b){
+            auto number=[](const QString&s){bool ok=false;int n=s.startsWith("download-")?s.mid(9).toInt(&ok):0;return ok?n:INT_MAX;};
+            const int na=number(a),nb=number(b);return na==nb?a<b:na<nb;
+        });
+        for(const QString&candidate:ids){const auto task=queued_.value(candidate);const auto q=queues_.value(task.queueId,queues_.value("main"));
+            if(task.status=="Queued"&&!q.paused&&activeCountForQueue(q.id)<q.maxActive){id=candidate;break;}}
+        if(id.isEmpty())return;
+        const auto d=queued_.value(id);
         queued_[id].status = QStringLiteral("Starting");
         database_.save(queued_[id]);
 
@@ -212,7 +259,7 @@ void DownloadManager::startNextQueued() {
         updateActiveBandwidthLimits();
 
         connect(thread, &QThread::started, downloader, [downloader, d, this] {
-            downloader->setSegments(httpConnections_);
+            downloader->setSegments(d.connectionCount > 0 ? qBound(1, d.connectionCount, 8) : httpConnections_);
             downloader->setExpectedSha256(d.sha256);
             downloader->setProxy(proxyHost_, proxyPort_, proxyType_);
             downloader->start(d.source, d.destination);

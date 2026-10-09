@@ -31,6 +31,7 @@ private slots:
     void filterDownloads(const QString &filter);
     void configureChecksumSelected();
     void showSelectedDetails();
+    void showQueueManager();
 private:
     int selectedRow() const;
     QString selectedId() const;
