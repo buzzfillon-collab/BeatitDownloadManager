@@ -46,6 +46,16 @@ if ($httpDownloader -notmatch "setUserAgent|CURLOPT_USERAGENT") {
 if ($mainWindow -notmatch "href\\s\*=|same-host HTML pages|Download All") {
     throw "Link extraction or bounded Site Grabber implementation missing."
 }
+foreach ($feature in @("categories/hostRules","categories/customNames","clipboard/monitor","antivirus/program","power/shutdownOnComplete",
+                       "maxDepth","includePattern","excludePattern","Save Site Grabber project","runScheduledSiteGrabber",
+                       "previewRemoteZip","checkForUpdates","QCryptographicHash::hash(installer","showSyncManager","runSyncChecks",
+                       "lightThemeOverrides","appearance/columns","toolbarGrabLinksButton")) {
+    if (-not $mainWindow.Contains($feature)) { throw "Missing P1/P2 feature implementation marker: $feature" }
+}
+$installerScript = Get-Content (Join-Path $RepoRoot "installer/Beatit.iss") -Raw
+if ($installerScript -notmatch 'Name: "\{autoprograms\}\\\{#MyAppName\}"') {
+    throw "Installer Start Menu shortcut path is malformed."
+}
 if ($mainWindow -match 'ftp://') {
     throw "FTP URL intake must remain out of scope."
 }
