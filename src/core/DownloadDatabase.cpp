@@ -83,8 +83,10 @@ bool DownloadDatabase::open() {
     return true;
 }
 
-void DownloadDatabase::initialize() {
-    execSql(asDb(db_),
+bool DownloadDatabase::initialize() {
+    sqlite3 *db = asDb(db_);
+    if (!execSql(db, "BEGIN IMMEDIATE;")) return false;
+    bool ok = execSql(db,
         "CREATE TABLE IF NOT EXISTS downloads ("
         "id TEXT PRIMARY KEY,type TEXT NOT NULL,source TEXT NOT NULL,"
         "destination TEXT NOT NULL,filename TEXT NOT NULL,status TEXT NOT NULL,"
@@ -93,7 +95,7 @@ void DownloadDatabase::initialize() {
         "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "sha256 TEXT NOT NULL DEFAULT '',verification TEXT NOT NULL DEFAULT '');");
-    // Version 3: additive metadata migration. Existing history/download rows are retained.
+    // Version 3 is additive: existing downloads and history are retained.
     ok = ok && ensureColumn(db, "sha256", "TEXT NOT NULL DEFAULT ''");
     ok = ok && ensureColumn(db, "verification", "TEXT NOT NULL DEFAULT ''");
     ok = ok && ensureColumn(db, "category", "TEXT NOT NULL DEFAULT 'Other'");
