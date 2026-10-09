@@ -41,7 +41,7 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 - [x] Multiple user-defined queues with independent concurrency and start/stop controls
 - [x] Move queued downloads between queues and retry failed items per queue
 - [x] Editable extension rules for Video, Music, Documents, and Programs
-- [ ] Host-specific category rules and fully user-defined categories
+- [x] Host-specific category rules and fully user-defined categories
 - [x] Per-download Properties dialog (edit URL, destination, filename, category, description, connection count, proxy, User-Agent, checksum)
 
 ### BitTorrent
@@ -70,21 +70,21 @@ Beatit is a **feature-rich beta**. Core HTTP/HTTPS, BitTorrent, scheduling, cate
 - [x] Bundled yt-dlp, FFmpeg, ffprobe, and Deno toolchain
 - [x] yt-dlp nightly/stable channel selection and update/retry path
 - [x] Extract and deduplicate HTTP/HTTPS links from a page; select individual links or Download All
-- [ ] Selected-text link extraction and advanced link-type filters
-- [x] Basic Site Grabber: bounded same-host crawl with a configurable page limit and link preview
-- [ ] Site Grabber include/exclude filters, saved projects, and scheduling
+- [x] Selected-text / pasted-text URL extraction, regex include/exclude filters, and extension filters
+- [x] Site Grabber: same-host crawl with page/depth bounds, include/exclude and extension filters, cancellation, saved projects, and recurring background scans
+- [x] Site Grabber include/exclude filters, saved projects, and scheduling
 - [ ] Browser-extension store submission and signed distribution
 
 ### IDM-parity features not yet implemented
-- [ ] IDM-style adaptive splitting of the largest remaining range during an active transfer (existing 32-range worker scheduling is already implemented)
-- [ ] Clipboard URL monitoring with a confirmation prompt
+- [ ] IDM-style adaptive splitting of the largest remaining range during an active transfer (existing 32-range worker scheduling is already implemented; still an outstanding throughput optimization)
+- [x] Optional clipboard URL monitoring with confirmation before enqueueing
 - [ ] Drag-and-drop URL/file intake and drag-out support
-- [ ] ZIP archive preview before downloading/extracting
-- [ ] Configurable external antivirus scan on completion
-- [ ] Optional computer shutdown after the download queue completes
-- [ ] Built-in release updater with hash verification and safe installer handoff
-- [ ] Customizable columns, toolbar, and theme/skin system
-- [ ] Periodic synchronization queues for re-downloading changed files
+- [x] Remote ZIP central-directory preview via bounded HTTP Range requests, with path-traversal and extreme compression-ratio warnings
+- [x] Configurable external antivirus process on completion, with explicit process status
+- [x] Opt-in shutdown offer after the download queue completes
+- [x] Built-in GitHub Releases updater with SHA-256 verification and installer handoff
+- [x] Customizable column visibility, toolbar buttons, and light/dark theme
+- [x] Periodic synchronization jobs using HTTP ETag / Last-Modified / size validators
 
 ### Packaging and release
 - [x] Inno Setup per-user installer definition
