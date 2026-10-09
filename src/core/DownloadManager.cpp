@@ -101,7 +101,7 @@ bool DownloadManager::setQueuePaused(const QString&id,bool paused) {
 }
 bool DownloadManager::moveToQueue(const QString&downloadId,const QString&queueId) {
     if(!queues_.contains(queueId)||active_.contains(downloadId)||!queued_.contains(downloadId))return false;
-    auto&d=queued_[downloadId];d.queueId=queueId;if(d.status=="Paused")d.status="Queued";
+    auto&d=queued_[downloadId];d.queueId=queueId; // Preserve manually paused state when moving queues.
     const bool ok=database_.save(d);startNextQueued();return ok;
 }
 void DownloadManager::retryFailedInQueue(const QString&queueId) {
