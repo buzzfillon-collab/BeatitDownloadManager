@@ -35,6 +35,7 @@ private slots:
     void showSelectedProperties();
     void showLinkExtractor();
     void runScheduledSiteGrabber();
+    void previewRemoteZip(const QString &url);
     void showQueueManager();
 private:
     int selectedRow() const;
