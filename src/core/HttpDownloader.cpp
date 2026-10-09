@@ -89,9 +89,22 @@ namespace {
 struct SegmentResult {
     bool ok = false;
     bool cancelled = false;
+    bool retryable = true;
+    bool rangeUnsupported = false;
     qint64 bytes = 0;
     QString error;
 };
+
+bool retryableHttpStatus(long status) {
+    return status == 408 || status == 425 || status == 429 ||
+           status == 500 || status == 502 || status == 503 || status == 504;
+}
+
+void interruptibleBackoff(int milliseconds, const HttpDownloader *owner) {
+    const int quantumMs = 100;
+    for (int elapsed = 0; elapsed < milliseconds && !owner->isCancelRequested(); elapsed += quantumMs)
+        std::this_thread::sleep_for(std::chrono::milliseconds(qMin(quantumMs, milliseconds - elapsed)));
+}
 struct SegmentContext {
     HttpDownloader *owner{};
     QFile *file{};
@@ -157,9 +170,28 @@ SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QStrin
     long response=0; curl_easy_getinfo(curl,CURLINFO_RESPONSE_CODE,&response);
     file.flush(); file.close(); curl_easy_cleanup(curl);
     if(owner->isCancelRequested()){out.cancelled=true;return out;}
-    if(code!=CURLE_OK){out.error=QString::fromUtf8(curl_easy_strerror(code));return out;}
-    if(response!=206){out.error=QStringLiteral("Server did not honor HTTP Range for segmented download.");return out;}
-    if(ctx.written!=ctx.expected){out.error=QStringLiteral("Segment size mismatch.");return out;}
+    if(code!=CURLE_OK){
+        out.error=QString::fromUtf8(curl_easy_strerror(code));
+        out.retryable = code != CURLE_URL_MALFORMAT && code != CURLE_UNSUPPORTED_PROTOCOL &&
+                        code != CURLE_NOT_BUILT_IN;
+        return out;
+    }
+    if(response!=206){
+        if(response==200){
+            out.rangeUnsupported=true;
+            out.retryable=false;
+            out.error=QStringLiteral("Server did not honor HTTP Range for segmented download.");
+        } else {
+            out.retryable=retryableHttpStatus(response);
+            out.error=QStringLiteral("HTTP %1 while downloading a segment.").arg(response);
+        }
+        return out;
+    }
+    if(ctx.written!=ctx.expected){
+        out.error=QStringLiteral("Segment size mismatch.");
+        out.retryable=true;
+        return out;
+    }
     out.ok=true;out.bytes=ctx.written;return out;
 }
 }
@@ -292,11 +324,14 @@ void HttpDownloader::run(const QString &url,const QString &destination){
                     const int index=pending[slot];
                     const auto [first,last]=bounds[index];
                     SegmentResult result;
-                    for(int attempt=0;attempt<3&&!isCancelRequested();++attempt) {
+                    // Retry transient network/server failures with bounded exponential
+                    // backoff (0.5, 1, 2, 4, 8 seconds). Permanent HTTP errors and
+                    // servers that ignore Range fail immediately instead of wasting time.
+                    for(int attempt=0;attempt<5&&!isCancelRequested();++attempt) {
                         result=fetchSegment(this,url,segmentFiles[index],first,last,
                                             &aggregateDone,&lastReportBytes,&lastReportMs);
-                        if(result.ok||result.cancelled) break;
-                        if(attempt<2) std::this_thread::sleep_for(std::chrono::seconds(1<<attempt));
+                        if(result.ok||result.cancelled||!result.retryable) break;
+                        if(attempt<4) interruptibleBackoff(500 * (1 << attempt), this);
                     }
                     if(result.cancelled) break;
                     if(!result.ok) {
@@ -304,7 +339,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
                             std::lock_guard<std::mutex> lock(resultMutex);
                             if(error.isEmpty()) error=result.error;
                         }
-                        if(result.error.contains(QStringLiteral("did not honor HTTP Range")))
+                        if(result.rangeUnsupported)
                             rangeUnsupported.store(true);
                         workerFailed.store(true);
                         break;
