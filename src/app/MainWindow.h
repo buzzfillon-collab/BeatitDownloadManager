@@ -4,7 +4,7 @@
 #include <QMainWindow>
 #include <QSystemTrayIcon>
 
-class QLabel; class QLineEdit; class QPushButton; class QTableWidget; class QCloseEvent; class QCheckBox;
+class QLabel; class QLineEdit; class QPushButton; class QTableWidget; class QCloseEvent; class QCheckBox; class QDragEnterEvent; class QDropEvent;
 class QMenu; class DownloadManager; class Scheduler; class TorrentEngine; class BrowserBridge; class YtDlpManager; class QProcess;
 
 class MainWindow final : public QMainWindow {
@@ -14,6 +14,8 @@ public:
     void handleExternalCommand(const QStringList &arguments);
 protected:
     void closeEvent(QCloseEvent *event) override;
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
 private slots:
     void addDownload();
     void pauseSelected();
