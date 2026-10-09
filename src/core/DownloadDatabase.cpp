@@ -1,7 +1,8 @@
 #include "DownloadDatabase.h"
 #include <QDir>
 #include <QStandardPaths>
-#include <sqlite3.h>\n#include <QByteArray>
+#include <sqlite3.h>
+#include <QByteArray>
 
 namespace {
 sqlite3 *asDb(void *p) { return static_cast<sqlite3 *>(p); }
@@ -79,7 +80,7 @@ bool DownloadDatabase::open() {
     db_ = db;
     execSql(db, "PRAGMA journal_mode=WAL;");
     execSql(db, "PRAGMA synchronous=NORMAL;");
-    initialize();
+    if (!initialize()) { close(); return false; }
     return true;
 }
 
