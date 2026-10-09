@@ -28,7 +28,7 @@ private slots:
     void checkForUpdates();
     void showFromTray();
     void exitFromTray();
-    void handleBrowserCapture(const QString &url, const QString &title, const QString &kind);
+    void handleBrowserCapture(const QString &url, const QString &title, const QString &kind, const QString &pageUrl, const QString &userAgent);
     void startYtDlpDownload(const QString &url, bool youtube, const QString &kind, bool audioOnly = false);
     void chooseVideoFormat(const QString &url, bool youtube, const QString &kind);
     void filterDownloads(const QString &filter);
@@ -60,6 +60,8 @@ private:
     bool ytDlpRetryAfterUpdate_ = false;
     bool ytDlpPendingAudioOnly_ = false;
     QString ytDlpFormat_;
+    QString browserReferer_;
+    QString browserUserAgent_;
     QHash<QString, QString> paths_; QHash<QString, int> rows_;
     QHash<QString, qint64> currentDownloadSpeed_;
     QHash<QString, qint64> currentUploadSpeed_;
