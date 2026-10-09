@@ -846,7 +846,7 @@ void MainWindow::addDownload(){
     const QString destination = settings.value(QStringLiteral("categories/%1").arg(category),
         QDir(root).filePath(category)).toString();
     QDir().mkpath(destination);
-    downloadManager_->addUrl(url,destination);
+    downloadManager_->addUrl(url,destination,category);
     urlEdit_->clear();statusLabel_->setText(QStringLiteral("Queued — %1").arg(category));
 }
 void MainWindow::pauseSelected(){const QString id=selectedId();if(id.startsWith("torrent-"))torrentEngine_->pause(id);else if(!id.isEmpty())downloadManager_->pause(id);}
