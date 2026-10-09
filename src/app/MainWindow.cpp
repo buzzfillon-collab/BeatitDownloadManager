@@ -57,6 +57,7 @@
 #include <QJsonObject>
 #include <QTimer>
 #include <QSet>
+#include <QUuid>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -173,7 +174,9 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     siteGrabberSchedulePoll->setInterval(30000);
     connect(siteGrabberSchedulePoll, &QTimer::timeout, this, [this] { runScheduledSiteGrabber(); });
     siteGrabberSchedulePoll->start();
-    QTimer::singleShot(2500, this, [this] { runScheduledSiteGrabber(); });
+    auto *syncPoll = new QTimer(this); syncPoll->setInterval(30000);
+    connect(syncPoll,&QTimer::timeout,this,[this]{runSyncChecks();}); syncPoll->start();
+    QTimer::singleShot(2500, this, [this] { runScheduledSiteGrabber(); runSyncChecks(); });
 
     auto *root=new QWidget(this);
     auto *mainLayout=new QVBoxLayout(root);
@@ -199,6 +202,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     auto *queuesButton=new QPushButton(QStringLiteral("Queues"),toolbar);queuesButton->setObjectName("toolbarQueuesButton");
     toolbarLayout->addWidget(queuesButton);
     auto *updateButton=new QPushButton(QStringLiteral("Update"),toolbar);updateButton->setObjectName("toolbarUpdateButton");toolbarLayout->addWidget(updateButton);
+    auto *syncButton=new QPushButton(QStringLiteral("Sync"),toolbar);syncButton->setObjectName("toolbarSyncButton");toolbarLayout->addWidget(syncButton);
     auto *settingsButton=new QPushButton(QStringLiteral("⚙"),toolbar);
     settingsButton->setToolTip(QStringLiteral("Settings"));
     settingsButton->setFixedWidth(42);
@@ -365,6 +369,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     });
     connect(settingsButton,&QPushButton::clicked,this,&MainWindow::showSettings);
     connect(updateButton,&QPushButton::clicked,this,&MainWindow::checkForUpdates);
+    connect(syncButton,&QPushButton::clicked,this,&MainWindow::showSyncManager);
     connect(QApplication::clipboard(), &QClipboard::dataChanged, this, [this] {
         QSettings cfg(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
         if (!cfg.value(QStringLiteral("clipboard/monitor"), false).toBool()) return;
@@ -2053,6 +2058,112 @@ void MainWindow::showSettings(){
     statusLabel_->setText(QStringLiteral("Settings saved"));
 }
 
+
+
+void MainWindow::showSyncManager() {
+    QDialog dialog(this); dialog.setWindowTitle(QStringLiteral("Periodic synchronization queues")); dialog.resize(720,480);
+    auto *layout=new QVBoxLayout(&dialog);
+    auto *list=new QListWidget(&dialog); layout->addWidget(list,1);
+    auto refresh=[list] {
+        list->clear(); QSettings settings(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
+        const QJsonArray jobs=QJsonDocument::fromJson(settings.value(QStringLiteral("sync/jobs")).toByteArray()).array();
+        for(const QJsonValue &value:jobs) {
+            const QJsonObject job=value.toObject();
+            auto *item=new QListWidgetItem(QStringLiteral("%1 — every %2 hour(s)").arg(job.value(QStringLiteral("url")).toString()).arg(job.value(QStringLiteral("hours")).toInt(24)),list);
+            item->setData(Qt::UserRole,job.value(QStringLiteral("id")).toString());
+        }
+    };
+    auto *form=new QFormLayout();
+    auto *url=new QLineEdit(&dialog); url->setPlaceholderText(QStringLiteral("https://example.com/file.zip"));
+    auto *hours=new QSpinBox(&dialog); hours->setRange(1,720); hours->setValue(24);
+    form->addRow(QStringLiteral("HTTP/HTTPS file URL"),url); form->addRow(QStringLiteral("Check interval (hours)"),hours); layout->addLayout(form);
+    auto *buttons=new QHBoxLayout(); auto *add=new QPushButton(QStringLiteral("Add sync job"),&dialog); auto *remove=new QPushButton(QStringLiteral("Remove selected"),&dialog);
+    auto *checkNow=new QPushButton(QStringLiteral("Check now"),&dialog); auto *close=new QDialogButtonBox(QDialogButtonBox::Close,&dialog);
+    buttons->addWidget(add);buttons->addWidget(remove);buttons->addWidget(checkNow);buttons->addStretch();buttons->addWidget(close);layout->addLayout(buttons);
+    connect(add,&QPushButton::clicked,&dialog,[&] {
+        const QUrl parsed(url->text().trimmed());
+        if(!parsed.isValid()||parsed.host().isEmpty()||(parsed.scheme()!=QStringLiteral("http")&&parsed.scheme()!=QStringLiteral("https"))) {
+            QMessageBox::warning(&dialog,QStringLiteral("Invalid URL"),QStringLiteral("Only direct HTTP/HTTPS file URLs can be synchronized."));return;
+        }
+        QSettings settings(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
+        QJsonArray jobs=QJsonDocument::fromJson(settings.value(QStringLiteral("sync/jobs")).toByteArray()).array();
+        for(const QJsonValue &v:jobs) if(v.toObject().value(QStringLiteral("url")).toString()==parsed.toString(QUrl::FullyEncoded)) {
+            QMessageBox::information(&dialog,QStringLiteral("Already configured"),QStringLiteral("That URL already has a synchronization job."));return;
+        }
+        QJsonObject job;job.insert(QStringLiteral("id"),QUuid::createUuid().toString(QUuid::WithoutBraces));job.insert(QStringLiteral("url"),parsed.toString(QUrl::FullyEncoded));
+        job.insert(QStringLiteral("hours"),hours->value());job.insert(QStringLiteral("lastValidator"),QString());job.insert(QStringLiteral("nextCheck"),QDateTime::currentSecsSinceEpoch()+30);
+        jobs.append(job);settings.setValue(QStringLiteral("sync/jobs"),QJsonDocument(jobs).toJson(QJsonDocument::Compact));url->clear();refresh();
+    });
+    connect(remove,&QPushButton::clicked,&dialog,[&] {
+        if(!list->currentItem())return;const QString id=list->currentItem()->data(Qt::UserRole).toString();
+        QSettings settings(QStringLiteral("Beatit"),QStringLiteral("Beatit"));QJsonArray old=QJsonDocument::fromJson(settings.value(QStringLiteral("sync/jobs")).toByteArray()).array(),next;
+        for(const QJsonValue &v:old)if(v.toObject().value(QStringLiteral("id")).toString()!=id)next.append(v);
+        settings.setValue(QStringLiteral("sync/jobs"),QJsonDocument(next).toJson(QJsonDocument::Compact));refresh();
+    });
+    connect(checkNow,&QPushButton::clicked,&dialog,[this]{QSettings settings(QStringLiteral("Beatit"),QStringLiteral("Beatit"));QJsonArray jobs=QJsonDocument::fromJson(settings.value(QStringLiteral("sync/jobs")).toByteArray()).array();for(int i=0;i<jobs.size();++i){QJsonObject o=jobs.at(i).toObject();o.insert(QStringLiteral("nextCheck"),0);jobs.replace(i,o);}settings.setValue(QStringLiteral("sync/jobs"),QJsonDocument(jobs).toJson(QJsonDocument::Compact));runSyncChecks();});
+    connect(close,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);refresh();dialog.exec();
+}
+
+void MainWindow::runSyncChecks() {
+    if(syncCheckRunning_)return;
+    QSettings settings(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
+    auto jobs=std::make_shared<QJsonArray>(QJsonDocument::fromJson(settings.value(QStringLiteral("sync/jobs")).toByteArray()).array());
+    const qint64 now=QDateTime::currentSecsSinceEpoch();
+    QStringList due;
+    for(int i=0;i<jobs->size();++i) {
+        QJsonObject job=jobs->at(i).toObject();
+        if(job.value(QStringLiteral("nextCheck")).toVariant().toLongLong()>now)continue;
+        const QString id=job.value(QStringLiteral("id")).toString();
+        if(id.isEmpty())continue;
+        due.append(id);
+        job.insert(QStringLiteral("nextCheck"),now+qBound(1,job.value(QStringLiteral("hours")).toInt(24),720)*3600);
+        jobs->replace(i,job);
+    }
+    if(due.isEmpty())return;
+    settings.setValue(QStringLiteral("sync/jobs"),QJsonDocument(*jobs).toJson(QJsonDocument::Compact));
+    syncCheckRunning_=true;
+    auto *network=new QNetworkAccessManager(this);
+    auto remaining=std::make_shared<int>(due.size());
+    for(const QString &id:due) {
+        QJsonObject job;
+        for(const QJsonValue &v:*jobs)if(v.toObject().value(QStringLiteral("id")).toString()==id){job=v.toObject();break;}
+        const QUrl url(job.value(QStringLiteral("url")).toString());
+        QNetworkRequest request(url);request.setRawHeader("User-Agent","BeatitDownloadManager/0.1");request.setTransferTimeout(20000);
+        QNetworkReply *reply=network->head(request);
+        connect(reply,&QNetworkReply::finished,this,[this,reply,network,remaining,id] {
+            const bool ok=reply->error()==QNetworkReply::NoError && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()>=200 && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()<400;
+            const QString etag=reply->rawHeader("ETag").trimmed();
+            const QString modified=reply->header(QNetworkRequest::LastModifiedHeader).toDateTime().toUTC().toString(Qt::ISODate);
+            const qint64 size=reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+            reply->deleteLater();
+            QSettings cfg(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
+            QJsonArray current=QJsonDocument::fromJson(cfg.value(QStringLiteral("sync/jobs")).toByteArray()).array();
+            for(int i=0;i<current.size();++i) {
+                QJsonObject job=current.at(i).toObject();
+                if(job.value(QStringLiteral("id")).toString()!=id)continue;
+                if(ok) {
+                    const QString validator=QStringLiteral("%1|%2|%3").arg(etag,modified).arg(size);
+                    const QString previous=job.value(QStringLiteral("lastValidator")).toString();
+                    job.insert(QStringLiteral("lastValidator"),validator);
+                    if(!previous.isEmpty() && !validator.isEmpty() && previous!=validator) {
+                        const QString url=job.value(QStringLiteral("url")).toString();
+                        const QString category=categoryForUrl(url);const QString destination=categoryDestination(category);
+                        QDir().mkpath(destination);downloadManager_->addUrl(url,destination,category);
+                        statusLabel_->setText(QStringLiteral("Sync detected a changed file and queued it: %1").arg(QUrl(url).fileName()));
+                    } else if(previous.isEmpty()) {
+                        statusLabel_->setText(QStringLiteral("Sync baseline recorded for %1").arg(QUrl(job.value(QStringLiteral("url")).toString()).fileName()));
+                    }
+                } else {
+                    statusLabel_->setText(QStringLiteral("Sync check failed for %1").arg(QUrl(job.value(QStringLiteral("url")).toString()).host()));
+                }
+                current.replace(i,job);break;
+            }
+            cfg.setValue(QStringLiteral("sync/jobs"),QJsonDocument(current).toJson(QJsonDocument::Compact));
+            --(*remaining);
+            if(*remaining<=0){syncCheckRunning_=false;network->deleteLater();}
+        });
+    }
+}
 
 void MainWindow::showQueueManager() {
     QDialog dialog(this); dialog.setWindowTitle(QStringLiteral("Download queues")); dialog.resize(540,420);
