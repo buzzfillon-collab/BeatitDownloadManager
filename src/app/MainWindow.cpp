@@ -9,6 +9,7 @@
 #include <QCloseEvent>
 #include <QClipboard>
 #include <QCryptographicHash>
+#include <QtEndian>
 #include <QApplication>
 #include <QDesktopServices>
 #include <QCheckBox>
@@ -1013,10 +1014,11 @@ void MainWindow::showLinkExtractor() {
     auto *selectAll = new QPushButton(QStringLiteral("Select all"), &dialog);
     auto *selectNone = new QPushButton(QStringLiteral("Select none"), &dialog);
     auto *downloadSelected = new QPushButton(QStringLiteral("Download selected"), &dialog);
+    auto *previewZip = new QPushButton(QStringLiteral("Preview remote ZIP"), &dialog);
     auto *downloadAll = new QPushButton(QStringLiteral("Download All"), &dialog);
     auto *close = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
     actions->addWidget(selectAll); actions->addWidget(selectNone); actions->addStretch();
-    actions->addWidget(downloadSelected); actions->addWidget(downloadAll); actions->addWidget(close);
+    actions->addWidget(previewZip); actions->addWidget(downloadSelected); actions->addWidget(downloadAll); actions->addWidget(close);
     root->addLayout(actions);
 
     auto *network = new QNetworkAccessManager(&dialog);
@@ -1188,6 +1190,13 @@ void MainWindow::showLinkExtractor() {
         }
         status->setText(QStringLiteral("Queued %1 downloads.").arg(count));
     };
+    connect(previewZip, &QPushButton::clicked, &dialog, [this,links,pageUrl] {
+        QString target;
+        for(int i=0;i<links->count();++i) if(links->item(i)->checkState()==Qt::Checked && QUrl(links->item(i)->text()).path().endsWith(QStringLiteral(".zip"),Qt::CaseInsensitive)) {target=links->item(i)->text();break;}
+        if(target.isEmpty() && QUrl(pageUrl->text().trimmed()).path().endsWith(QStringLiteral(".zip"),Qt::CaseInsensitive)) target=pageUrl->text().trimmed();
+        if(target.isEmpty()) {QMessageBox::information(this,QStringLiteral("ZIP preview"),QStringLiteral("Select a checked .zip link or enter a direct ZIP URL."));return;}
+        previewRemoteZip(target);
+    });
     connect(downloadSelected, &QPushButton::clicked, &dialog, [enqueue] { enqueue(false); });
     connect(downloadAll, &QPushButton::clicked, &dialog, [enqueue] { enqueue(true); });
     auto saveValues = [&] {
@@ -1267,6 +1276,100 @@ void MainWindow::showLinkExtractor() {
     if (schedule->isChecked()) rerunTimer->start(scheduleHours->value()*60*60*1000);
     connect(close,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     dialog.exec();
+}
+
+
+void MainWindow::previewRemoteZip(const QString &url) {
+    const QUrl parsed(url);
+    if(!parsed.isValid()||parsed.host().isEmpty()||(parsed.scheme()!=QStringLiteral("http")&&parsed.scheme()!=QStringLiteral("https"))) {
+        QMessageBox::warning(this,QStringLiteral("ZIP preview"),QStringLiteral("Only direct HTTP/HTTPS ZIP URLs are supported."));return;
+    }
+    auto *network=new QNetworkAccessManager(this);
+    auto fail=[this,network](const QString &message) {
+        QMessageBox::warning(this,QStringLiteral("ZIP preview unavailable"),message);
+        network->deleteLater();
+    };
+    QNetworkRequest request(parsed);
+    request.setRawHeader("User-Agent","BeatitDownloadManager/0.1");
+    request.setRawHeader("Range","bytes=-65557");
+    request.setTransferTimeout(20000);
+    QNetworkReply *tail=network->get(request);
+    connect(tail,&QNetworkReply::downloadProgress,tail,[tail](qint64 received,qint64){if(received>2*1024*1024)tail->abort();});
+    connect(tail,&QNetworkReply::finished,this,[this,network,tail,parsed,fail] {
+        const QByteArray data=tail->readAll();
+        const int status=tail->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QString range=QString::fromLatin1(tail->rawHeader("Content-Range"));
+        const QString error=tail->errorString();
+        tail->deleteLater();
+        if(status!=206 || data.size()>2*1024*1024) {fail(QStringLiteral("The server did not honor a bounded HTTP Range request. No full ZIP download was started."));return;}
+        static const QRegularExpression contentRange(QStringLiteral(R"re(^bytes\s+(\d+)-(\d+)/(\d+)$)re"),QRegularExpression::CaseInsensitiveOption);
+        const auto rangeMatch=contentRange.match(range);
+        if(!rangeMatch.hasMatch()) {fail(QStringLiteral("The server returned an invalid Content-Range header."));return;}
+        const quint64 rangeStart=rangeMatch.captured(1).toULongLong();
+        const quint64 totalSize=rangeMatch.captured(3).toULongLong();
+        int eocd=-1;
+        for(int pos=data.size()-22;pos>=qMax(0,data.size()-65557);--pos) {
+            if(qFromLittleEndian<quint32>(reinterpret_cast<const uchar*>(data.constData()+pos))==0x06054b50u) {eocd=pos;break;}
+        }
+        if(eocd<0 || eocd+22>data.size()) {fail(QStringLiteral("Could not find the ZIP end-of-central-directory record. The archive may be unsupported or malformed."));return;}
+        const auto *e=reinterpret_cast<const uchar*>(data.constData()+eocd);
+        const quint16 entries=qFromLittleEndian<quint16>(e+10);
+        const quint32 cdSize=qFromLittleEndian<quint32>(e+12);
+        const quint32 cdOffset=qFromLittleEndian<quint32>(e+16);
+        if(entries==0xffff || cdSize==0xffffffffu || cdOffset==0xffffffffu) {fail(QStringLiteral("ZIP64 archives are not supported by the remote preview yet."));return;}
+        if(entries>50000 || cdSize>16*1024*1024 || quint64(cdOffset)+cdSize>totalSize || cdSize==0) {fail(QStringLiteral("The archive directory exceeds the safe preview limits or is malformed."));return;}
+        const quint64 tailStart=rangeStart;
+        if(quint64(eocd)+rangeStart<tailStart) {fail(QStringLiteral("Invalid ZIP offsets."));return;}
+        QNetworkRequest directoryRequest(parsed);
+        directoryRequest.setRawHeader("User-Agent","BeatitDownloadManager/0.1");
+        directoryRequest.setRawHeader("Range",QByteArray("bytes=")+QByteArray::number(cdOffset)+"-"+QByteArray::number(quint64(cdOffset)+cdSize-1));
+        directoryRequest.setTransferTimeout(20000);
+        QNetworkReply *directory=network->get(directoryRequest);
+        connect(directory,&QNetworkReply::downloadProgress,directory,[directory](qint64 received,qint64){if(received>16*1024*1024)directory->abort();});
+        connect(directory,&QNetworkReply::finished,this,[this,network,directory,entries,cdSize] {
+            const QByteArray bytes=directory->readAll();
+            const int status=directory->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            directory->deleteLater();
+            if(status!=206 || quint64(bytes.size())!=cdSize) {
+                QMessageBox::warning(this,QStringLiteral("ZIP preview unavailable"),QStringLiteral("The server did not return the complete central directory using HTTP Range requests."));
+                network->deleteLater();return;
+            }
+            QDialog dialog(this);dialog.setWindowTitle(QStringLiteral("Remote ZIP contents"));dialog.resize(700,520);
+            auto *layout=new QVBoxLayout(&dialog);
+            auto *summary=new QLabel(&dialog);summary->setWordWrap(true);layout->addWidget(summary);
+            auto *list=new QListWidget(&dialog);layout->addWidget(list,1);
+            quint64 totalExpanded=0;int unsafe=0;int suspicious=0;int parsedEntries=0;int pos=0;
+            while(pos+46<=bytes.size() && parsedEntries<entries) {
+                const auto *entry=reinterpret_cast<const uchar*>(bytes.constData()+pos);
+                if(qFromLittleEndian<quint32>(entry)!=0x02014b50u) break;
+                const quint32 compressed=qFromLittleEndian<quint32>(entry+20);
+                const quint32 expanded=qFromLittleEndian<quint32>(entry+24);
+                const quint16 nameLen=qFromLittleEndian<quint16>(entry+28);
+                const quint16 extraLen=qFromLittleEndian<quint16>(entry+30);
+                const quint16 commentLen=qFromLittleEndian<quint16>(entry+32);
+                const quint16 flags=qFromLittleEndian<quint16>(entry+8);
+                if(pos+46+nameLen+extraLen+commentLen>bytes.size()) break;
+                const QByteArray rawName=bytes.mid(pos+46,nameLen);
+                QString name=QString::fromUtf8(rawName);
+                if(!(flags&0x0800) && name.contains(QChar::ReplacementCharacter)) name=QString::fromLocal8Bit(rawName);
+                QString normalized=name;normalized.replace('\\','/');
+                const bool bad=normalized.startsWith('/') || QRegularExpression(QStringLiteral(R"re(^[A-Za-z]:)re")).match(normalized).hasMatch() ||
+                    normalized.split('/',Qt::KeepEmptyParts).contains(QStringLiteral(".."));
+                if(bad) ++unsafe;
+                if(compressed==0 ? expanded>0 : quint64(expanded)>quint64(compressed)*1000) ++suspicious;
+                totalExpanded+=expanded;
+                auto *item=new QListWidgetItem(QStringLiteral("%1    %2").arg(bad?QStringLiteral("⚠ unsafe path"):QStringLiteral("•")).arg(name),list);
+                item->setToolTip(QStringLiteral("Compressed: %1 bytes; expanded: %2 bytes").arg(compressed).arg(expanded));
+                if(bad) item->setForeground(QColor(QStringLiteral("#d94a4a")));
+                ++parsedEntries;pos+=46+nameLen+extraLen+commentLen;
+            }
+            summary->setText(QStringLiteral("%1 entries shown; %2 total expanded bytes. Unsafe paths: %3. Extreme compression ratios: %4. This is a preview only; no extraction occurred.")
+                .arg(parsedEntries).arg(totalExpanded).arg(unsafe).arg(suspicious));
+            auto *buttons=new QDialogButtonBox(QDialogButtonBox::Close,&dialog);layout->addWidget(buttons);
+            connect(buttons,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
+            dialog.exec();network->deleteLater();
+        });
+    });
 }
 
 void MainWindow::runScheduledSiteGrabber() {
