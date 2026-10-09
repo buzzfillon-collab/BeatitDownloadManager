@@ -1,13 +1,17 @@
-# Remaining implementation plan (FTP excluded)
+# Remaining implementation plan (FTP and credentials excluded)
 
-This plan is ordered by dependency and user-visible value. Do not add FTP/FTPS support.
+This is the working feature plan, ordered by user value and dependency. FTP/FTPS, private-server credentials, and saved site logins are intentionally out of scope. Existing functionality is not to be rebuilt merely because its implementation differs from IDM.
 
-## Batch A — Download metadata and control (next)
-1. **Persisted download properties**: extend the SQLite schema with category, description, custom User-Agent, optional username/password (credentials protected with Windows DPAPI), and queue ID. Keep additive migrations safe for existing `beatit.db` files.
-2. **Properties dialog**: edit destination, filename, description, source URL, category, connection count, proxy override, User-Agent, credentials, and expected SHA-256. Validate edits before saving; do not mutate an active task's destination/URL without pausing it.
-3. **Category rules**: editable extension lists and destination paths, plus optional host-specific destination rules. Apply rules only to new tasks; existing tasks retain their category unless explicitly changed.
-4. **Queue engine**: introduce persisted queue records, stable ordering, per-queue concurrency, Start/Stop Queue, move-to-queue, retry-failed, and scheduler integration. Global concurrency and bandwidth remain upper bounds; queue limits must never exceed global limits.
-5. **Acceptance**: migrate an old database, create/edit/restart downloads, verify queue order and limits, and ensure category moves never silently overwrite files.
+## Batch A — Queue control and download properties (next)
+1. **Named queue model and controls**: promote the existing `queue_id` field from metadata into real behavior. Add persisted queue definitions, stable queue order, per-queue concurrency, Start/Stop Queue, move-to-queue, retry-failed, and scheduler integration. Global concurrency and bandwidth remain hard upper bounds.
+2. **Queue migration and recovery**: preserve all existing downloads as members of the default `main` queue; old databases must migrate additively without losing history or resume state. Stopped-queue items must remain queued across restart.
+3. **Properties dialog**: edit destination, filename, description, source URL, category, connection count, proxy override, User-Agent, and expected SHA-256. No credentials fields. Validate edits before saving; active transfers must be paused before changing URL or destination, and changing URL must invalidate incompatible partial segments.
+4. **Category rules**: editable extension lists and destination paths, plus optional host-specific destination rules. Apply rules only to new tasks; existing tasks retain their category unless explicitly changed.
+5. **Acceptance**: migrate an old database, create/edit/restart downloads, verify queue order and per-queue/global limits, and ensure category/destination changes never silently overwrite files.
+
+## Existing capability — HTTP segment scheduling
+- **Already implemented:** for a range-capable known-size file, the engine partitions the file into up to 32 stable byte ranges (subject to a 1 MiB minimum target range size), runs 1–8 concurrent workers, and each worker claims the next pending range as soon as it finishes its current range. Completed range files are retained for resume.
+- **Not the same as IDM's adaptive algorithm:** Beatit does not dynamically split the largest remaining range while a download is already running. Treat adaptive range splitting as an optional later optimization, not as an entirely missing segmented-download feature.
 
 ## Batch B — Browser and site workflows
 6. **Download All / link extraction**: parse links from a supplied page or pasted HTML, filter by extension/domain, show a selection preview, deduplicate normalized URLs, and enqueue only selected links. Respect robots/access controls; do not bypass authentication or site restrictions.
@@ -22,7 +26,8 @@ This plan is ordered by dependency and user-visible value. Do not add FTP/FTPS s
 13. **Release QA**: run Windows CI on every pull request and push, keep release publication tag-only, and add regression checks for categories, queue scheduling, proxy failures, corrupted partial files, and extension/native-host packaging.
 
 ## Invariants
-- HTTP/HTTPS, BitTorrent, and yt-dlp media are in scope; FTP is not.
+- HTTP/HTTPS, BitTorrent, and yt-dlp media are in scope; FTP/FTPS are not.
+- Private-server credentials and saved site logins are not supported; do not add credential fields or credential storage.
 - Preserve existing history/settings via additive SQLite migrations.
-- No credentials in logs, command-line arguments, crash reports, or plaintext settings.
+- Never silently discard or reuse incompatible partial-download segments after URL/range-layout changes.
 - Do not claim release readiness until a fresh Windows CI build and real-world pause/resume, proxy, browser-capture, torrent, and installer tests pass.
