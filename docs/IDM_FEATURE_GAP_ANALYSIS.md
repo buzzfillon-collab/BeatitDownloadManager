@@ -37,6 +37,7 @@ Comparison target: Internet Download Manager (IDM), using IDM's official feature
 - [x] **External antivirus hook.** Optional executable + argument template, safe argument handling, explicit completion status, and a 10-minute timeout. Never imply a scan occurred if it did not.
 - [x] **Queue completion actions.** Optionally offer PC shutdown after all listed downloads reach a terminal state; opt-in setting and a confirmation prompt precede a 60-second shutdown timer.
 - [x] **Customizable table columns and toolbar.** User-selectable column visibility and toolbar buttons, plus light/dark theme switching.
+- [x] **Drag-and-drop intake / drag-out.** Accept HTTP/HTTPS URLs, magnet links, .torrent files, and text files containing URLs; completed local files can be dragged out.
 - [x] **Periodic synchronization.** Optional queue type that checks remote modification metadata and re-downloads changed files. Requires careful handling of servers without reliable validators.
 - [x] **Built-in updater.** Check official GitHub Releases, verify a published SHA-256 manifest, prompt before installation, preserve user data, and never execute an unverified binary.
 - [ ] **Browser extension store distribution.** Publish signed/listed extension packages where practical; document manual installation for browsers where store publishing is unavailable.
