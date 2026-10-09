@@ -49,11 +49,42 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QTimer>\n#include <QSet>
+#include <QTimer>
+#include <QSet>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <functional>
+#include <memory>
 
 namespace {
 QString formatBytes(qint64 b){if(b<1024)return QStringLiteral("%1 B").arg(b);double v=b;const QStringList u{"KB","MB","GB","TB"};int i=-1;do{v/=1024.0;++i;}while(v>=1024.0&&i+1<u.size());return QStringLiteral("%1 %2").arg(v,0,'f',v>=100?0:1).arg(u[i]);}
 QString formatSpeed(qint64 b){return b<=0?QStringLiteral("—"):formatBytes(b)+QStringLiteral("/s");}
+QString categoryForUrl(const QString &url) {
+    const QString ext = QFileInfo(QUrl(url).path()).suffix().toLower();
+    QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    const QHash<QString, QString> defaults{
+        {QStringLiteral("Video"), QStringLiteral("mp4,mkv,webm,avi,mov,m4v,mpeg,mpg,ts,m3u8")},
+        {QStringLiteral("Music"), QStringLiteral("mp3,m4a,aac,flac,wav,ogg,opus,wma")},
+        {QStringLiteral("Documents"), QStringLiteral("pdf,doc,docx,xls,xlsx,ppt,pptx,txt,rtf,odt,ods,csv")},
+        {QStringLiteral("Programs"), QStringLiteral("exe,msi,msix,appx,zip,7z,rar,iso,dmg,deb,rpm")}
+    };
+    for (auto it = defaults.cbegin(); it != defaults.cend(); ++it) {
+        const QString rule = settings.value(QStringLiteral("categoryRules/%1").arg(it.key()), it.value()).toString();
+        for (QString token : rule.split(',', Qt::SkipEmptyParts)) {
+            token = token.trimmed().toLower();
+            if (token.startsWith('.')) token.remove(0, 1);
+            if (!token.isEmpty() && token == ext) return it.key();
+        }
+    }
+    return QStringLiteral("Other");
+}
+QString categoryDestination(const QString &category) {
+    const QString root = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    return settings.value(QStringLiteral("categories/%1").arg(category), QDir(root).filePath(category)).toString();
+}
+
 void tintRow(QTableWidget *table, int row, const QColor &tone) {
     for (int col = 0; col < table->columnCount(); ++col)
         if (auto *item = table->item(row, col)) item->setBackground(tone);
@@ -120,6 +151,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     urlEdit_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);
     toolbarLayout->addWidget(urlEdit_,1);toolbarLayout->addWidget(addButton_);
     auto *fileButton=new QPushButton(QStringLiteral("＋ Torrent"),toolbar);toolbarLayout->addWidget(fileButton);
+    auto *grabButton=new QPushButton(QStringLiteral("Grab links"),toolbar);toolbarLayout->addWidget(grabButton);
     auto *queuesButton=new QPushButton(QStringLiteral("Queues"),toolbar);
     toolbarLayout->addWidget(queuesButton);
     auto *settingsButton=new QPushButton(QStringLiteral("⚙"),toolbar);
@@ -225,6 +257,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     });
 
     connect(queuesButton, &QPushButton::clicked, this, &MainWindow::showQueueManager);
+    connect(grabButton, &QPushButton::clicked, this, &MainWindow::showLinkExtractor);
     connect(addButton_,&QPushButton::clicked,this,&MainWindow::addDownload);
     connect(urlEdit_,&QLineEdit::returnPressed,this,&MainWindow::addDownload);
     connect(pauseButton_,&QPushButton::clicked,this,&MainWindow::pauseSelected);
@@ -269,6 +302,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
             menu.addAction(QStringLiteral("Cancel"), this, &MainWindow::cancelSelected);
         menu.addAction(QStringLiteral("Remove from history…"), this, &MainWindow::removeSelected);
         menu.addSeparator();
+        menu.addAction(QStringLiteral("Properties…"), this, &MainWindow::showSelectedProperties);
         menu.addAction(QStringLiteral("Download details…"), this, &MainWindow::showSelectedDetails);
         menu.addAction(QStringLiteral("Open"), this, &MainWindow::openSelected);
         menu.exec(downloadsTable_->viewport()->mapToGlobal(pos));
@@ -707,6 +741,218 @@ void MainWindow::handleBrowserCapture(const QString &url, const QString &title, 
     }
 }
 
+void MainWindow::showSelectedProperties() {
+    const QString id = selectedId();
+    if (id.isEmpty()) return;
+    if (id.startsWith(QStringLiteral("torrent-"))) {
+        QMessageBox::information(this, QStringLiteral("Properties"), QStringLiteral("Torrent properties are managed by the BitTorrent engine."));
+        return;
+    }
+    const PersistedDownload stored = downloadManager_->downloadInfo(id);
+    if (stored.id.isEmpty() || stored.type != QStringLiteral("http")) {
+        QMessageBox::warning(this, QStringLiteral("Properties"), QStringLiteral("Download properties are unavailable."));
+        return;
+    }
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Download Properties"));
+    dialog.resize(620, 480);
+    auto *layout = new QVBoxLayout(&dialog);
+    auto *form = new QFormLayout();
+    auto *source = new QLabel(stored.source, &dialog);
+    source->setWordWrap(true);
+    auto *filename = new QLineEdit(stored.filename, &dialog);
+    auto *destination = new QLineEdit(stored.destination, &dialog);
+    auto *browse = new QPushButton(QStringLiteral("Browse…"), &dialog);
+    auto *destinationRow = new QWidget(&dialog);
+    auto *destinationLayout = new QHBoxLayout(destinationRow);
+    destinationLayout->setContentsMargins(0,0,0,0);
+    destinationLayout->addWidget(destination,1);
+    destinationLayout->addWidget(browse);
+    auto *category = new QLineEdit(stored.category.isEmpty() ? QStringLiteral("Other") : stored.category, &dialog);
+    auto *description = new QLineEdit(stored.description, &dialog);
+    auto *connections = new QSpinBox(&dialog);
+    connections->setRange(1,8);
+    connections->setValue(stored.connectionCount > 0 ? stored.connectionCount : 8);
+    auto *sha = new QLineEdit(stored.sha256, &dialog);
+    sha->setPlaceholderText(QStringLiteral("Optional 64-character SHA-256"));
+    form->addRow(QStringLiteral("Source URL"), source);
+    form->addRow(QStringLiteral("Filename"), filename);
+    form->addRow(QStringLiteral("Save to folder"), destinationRow);
+    form->addRow(QStringLiteral("Category"), category);
+    form->addRow(QStringLiteral("Description"), description);
+    form->addRow(QStringLiteral("HTTP connections"), connections);
+    form->addRow(QStringLiteral("Expected SHA-256"), sha);
+    layout->addLayout(form);
+    const QString status = downloadsTable_->item(rowForId(id),1) ? downloadsTable_->item(rowForId(id),1)->text().toLower() : QString();
+    const bool active = status.contains(QStringLiteral("downloading")) || status.contains(QStringLiteral("resolving")) || status.contains(QStringLiteral("starting"));
+    filename->setEnabled(!active);
+    destination->setEnabled(!active);
+    browse->setEnabled(!active);
+    if (active) {
+        auto *note = new QLabel(QStringLiteral("Filename and destination are locked while this download is active. Other changes apply to future retries/resumes."), &dialog);
+        note->setWordWrap(true);
+        layout->addWidget(note);
+    }
+    connect(browse, &QPushButton::clicked, &dialog, [&dialog,destination] {
+        const QString path = QFileDialog::getExistingDirectory(&dialog, QStringLiteral("Choose destination"), destination->text());
+        if (!path.isEmpty()) destination->setText(path);
+    });
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, [&dialog,this,stored,filename,destination,category,description,connections,sha] {
+        PersistedDownload updated = stored;
+        updated.filename = filename->text().trimmed();
+        updated.destination = destination->text().trimmed();
+        updated.category = category->text().trimmed();
+        updated.description = description->text().trimmed();
+        updated.connectionCount = connections->value();
+        updated.sha256 = sha->text().trimmed();
+        if (!downloadManager_->updateProperties(updated)) {
+            QMessageBox::warning(&dialog, QStringLiteral("Properties not saved"),
+                QStringLiteral("Check the filename, destination and SHA-256 value. Active downloads cannot change filename or destination."));
+            return;
+        }
+        statusLabel_->setText(QStringLiteral("Download properties saved"));
+        dialog.accept();
+    });
+    dialog.exec();
+}
+
+void MainWindow::showLinkExtractor() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Download All / Site Grabber"));
+    dialog.resize(780, 600);
+    auto *root = new QVBoxLayout(&dialog);
+    auto *urlRow = new QHBoxLayout();
+    auto *pageUrl = new QLineEdit(&dialog);
+    pageUrl->setPlaceholderText(QStringLiteral("https://example.com/page"));
+    auto *fetch = new QPushButton(QStringLiteral("Extract links"), &dialog);
+    urlRow->addWidget(pageUrl,1);
+    urlRow->addWidget(fetch);
+    root->addLayout(urlRow);
+    auto *options = new QHBoxLayout();
+    auto *siteGrabber = new QCheckBox(QStringLiteral("Site Grabber: crawl same-host HTML pages"), &dialog);
+    auto *maxPages = new QSpinBox(&dialog);
+    maxPages->setRange(1,100);
+    maxPages->setValue(20);
+    options->addWidget(siteGrabber);
+    options->addWidget(new QLabel(QStringLiteral("Page limit"),&dialog));
+    options->addWidget(maxPages);
+    options->addStretch();
+    root->addLayout(options);
+    auto *status = new QLabel(QStringLiteral("Paste a page URL, extract links, then select downloads."), &dialog);
+    root->addWidget(status);
+    auto *links = new QListWidget(&dialog);
+    links->setSelectionMode(QAbstractItemView::NoSelection);
+    root->addWidget(links,1);
+    auto *actions = new QHBoxLayout();
+    auto *selectAll = new QPushButton(QStringLiteral("Select all"), &dialog);
+    auto *selectNone = new QPushButton(QStringLiteral("Select none"), &dialog);
+    auto *downloadSelected = new QPushButton(QStringLiteral("Download selected"), &dialog);
+    auto *downloadAll = new QPushButton(QStringLiteral("Download All"), &dialog);
+    auto *close = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    actions->addWidget(selectAll); actions->addWidget(selectNone); actions->addStretch();
+    actions->addWidget(downloadSelected); actions->addWidget(downloadAll); actions->addWidget(close);
+    root->addLayout(actions);
+    auto *network = new QNetworkAccessManager(&dialog);
+    auto *seenPages = new QSet<QString>();
+    auto *seenLinks = new QSet<QString>();
+    auto *pendingPages = new QStringList();
+    auto *pageCount = new int(0);
+    auto *baseHost = new QString();
+    auto *crawlFn = std::make_shared<std::function<void(QUrl)>>();
+    *crawlFn = [&,crawlFn](QUrl page) {
+        page.setFragment(QString());
+        const QString normalized = page.toString(QUrl::FullyEncoded);
+        if (seenPages->contains(normalized) || pageCount && *pageCount >= maxPages->value()) {
+            if (pendingPages->isEmpty()) status->setText(QStringLiteral("Extracted %1 unique links from %2 pages.").arg(links->count()).arg(*pageCount));
+            return;
+        }
+        seenPages->insert(normalized);
+        ++(*pageCount);
+        status->setText(QStringLiteral("Fetching page %1 of %2: %3").arg(*pageCount).arg(maxPages->value()).arg(page.host()));
+        QNetworkRequest request(page);
+        request.setTransferTimeout(15000);
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+        QNetworkReply *reply = network->get(request);
+        connect(reply, &QNetworkReply::finished, &dialog, [&,reply,page,crawlFn] {
+            const QByteArray html = reply->readAll();
+            const auto netError = reply->error();
+            reply->deleteLater();
+            if (netError == QNetworkReply::NoError) {
+                const QString text = QString::fromUtf8(html);
+                static const QRegularExpression href(QStringLiteral(R"re(href\s*=\s*["']([^"']+)["'])re"), QRegularExpression::CaseInsensitiveOption);
+                auto it = href.globalMatch(text);
+                while (it.hasNext()) {
+                    const auto match = it.next();
+                    QUrl target = page.resolved(QUrl(match.captured(1).trimmed()));
+                    target.setFragment(QString());
+                    const QString scheme = target.scheme().toLower();
+                    if (!target.isValid() || (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))) continue;
+                    const QString key = target.toString(QUrl::FullyEncoded);
+                    if (!seenLinks->contains(key)) {
+                        seenLinks->insert(key);
+                        auto *item = new QListWidgetItem(key, links);
+                        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+                        item->setCheckState(Qt::Checked);
+                    }
+                    const QString path = target.path().toLower();
+                    const bool htmlPage = path.isEmpty() || path.endsWith(QStringLiteral(".html")) ||
+                        path.endsWith(QStringLiteral(".htm")) || path.endsWith(QStringLiteral(".php")) ||
+                        path.endsWith(QStringLiteral(".asp")) || path.endsWith(QStringLiteral(".aspx"));
+                    if (siteGrabber->isChecked() && target.host().compare(*baseHost, Qt::CaseInsensitive) == 0 &&
+                        htmlPage && !seenPages->contains(key) && *pageCount + pendingPages->size() < maxPages->value())
+                        pendingPages->append(key);
+                }
+            }
+            if (!pendingPages->isEmpty() && *pageCount < maxPages->value()) {
+                const QUrl next(pendingPages->takeFirst());
+                (*crawlFn)(next);
+            } else {
+                status->setText(QStringLiteral("Extracted %1 unique links from %2 pages%3.")
+                    .arg(links->count()).arg(*pageCount).arg(netError == QNetworkReply::NoError ? QString() : QStringLiteral(" (some pages failed)")));
+            }
+        });
+    };
+    connect(fetch, &QPushButton::clicked, &dialog, [&,crawlFn] {
+        const QUrl url(pageUrl->text().trimmed());
+        if (!url.isValid() || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https"))) {
+            QMessageBox::warning(&dialog, QStringLiteral("Invalid URL"), QStringLiteral("Enter a valid HTTP or HTTPS page URL."));
+            return;
+        }
+        links->clear(); seenPages->clear(); seenLinks->clear(); pendingPages->clear(); *pageCount = 0;
+        *baseHost = url.host();
+        pendingPages->append(url.toString(QUrl::FullyEncoded));
+        (*crawlFn)(QUrl(pendingPages->takeFirst()));
+    });
+    connect(selectAll, &QPushButton::clicked, &dialog, [links] {
+        for (int i=0;i<links->count();++i) links->item(i)->setCheckState(Qt::Checked);
+    });
+    connect(selectNone, &QPushButton::clicked, &dialog, [links] {
+        for (int i=0;i<links->count();++i) links->item(i)->setCheckState(Qt::Unchecked);
+    });
+    auto enqueue = [this,links,status](bool all) {
+        int count = 0;
+        for (int i=0;i<links->count();++i) {
+            auto *item = links->item(i);
+            if (!all && item->checkState() != Qt::Checked) continue;
+            const QString url = item->text();
+            const QString category = categoryForUrl(url);
+            const QString destination = categoryDestination(category);
+            QDir().mkpath(destination);
+            downloadManager_->addUrl(url,destination,category);
+            ++count;
+        }
+        status->setText(QStringLiteral("Queued %1 downloads.").arg(count));
+    };
+    connect(downloadSelected, &QPushButton::clicked, &dialog, [enqueue] { enqueue(false); });
+    connect(downloadAll, &QPushButton::clicked, &dialog, [enqueue] { enqueue(true); });
+    connect(close, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    dialog.exec();
+    delete seenPages; delete seenLinks; delete pendingPages; delete pageCount; delete baseHost;
+}
+
 void MainWindow::showSelectedDetails(){
     const QString id = selectedId();
     if (id.isEmpty()) return;
@@ -833,21 +1079,8 @@ void MainWindow::addDownload(){
     const QUrl parsed(url);
     if(!parsed.isValid()||(parsed.scheme()!="http"&&parsed.scheme()!="https")){statusLabel_->setText("Only HTTP/HTTPS URLs and magnet links are supported");return;}
 
-    // IDM-style automatic categories: route common file types into predictable subfolders.
-    const QString name = QFileInfo(parsed.path()).fileName().toLower();
-    const QString ext = QFileInfo(name).suffix();
-    QString category = QStringLiteral("Other");
-    static const QSet<QString> video{ "mp4","mkv","webm","avi","mov","m4v","mpeg","mpg","ts","m3u8" };
-    static const QSet<QString> audio{ "mp3","m4a","aac","flac","wav","ogg","opus","wma" };
-    static const QSet<QString> documents{ "pdf","doc","docx","xls","xlsx","ppt","pptx","txt","rtf","odt","ods","csv" };
-    static const QSet<QString> programs{ "exe","msi","msix","appx","zip","7z","rar","iso","dmg","deb","rpm" };
-    if(video.contains(ext)) category = QStringLiteral("Video");
-    else if(audio.contains(ext)) category = QStringLiteral("Music");
-    else if(documents.contains(ext)) category = QStringLiteral("Documents");
-    else if(programs.contains(ext)) category = QStringLiteral("Programs");
-    QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
-    const QString destination = settings.value(QStringLiteral("categories/%1").arg(category),
-        QDir(root).filePath(category)).toString();
+    const QString category = categoryForUrl(url);
+    const QString destination = categoryDestination(category);
     QDir().mkpath(destination);
     downloadManager_->addUrl(url,destination,category);
     urlEdit_->clear();statusLabel_->setText(QStringLiteral("Queued — %1").arg(category));
@@ -1008,6 +1241,7 @@ void MainWindow::showSettings(){
     g->addRow(QStringLiteral("After download completes"), completion);
 
     QHash<QString, QLineEdit*> categoryPaths;
+    QHash<QString, QLineEdit*> categoryRules;
     const QString downloadRoot = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
     for (const QString &category : {QStringLiteral("Video"), QStringLiteral("Music"), QStringLiteral("Documents"), QStringLiteral("Programs"), QStringLiteral("Other")}) {
         auto *pathEdit = new QLineEdit(settings.value(QStringLiteral("categories/%1").arg(category),
@@ -1023,7 +1257,19 @@ void MainWindow::showSettings(){
             if (!chosen.isEmpty()) pathEdit->setText(chosen);
         });
         categoryPaths.insert(category, pathEdit);
-        g->addRow(QStringLiteral("%1 folder").arg(category), pathRow);
+        g->addRow(QStringLiteral("%1 folder").arg(category), pathRow); 
+        if (category != QStringLiteral("Other")) {
+            const QHash<QString, QString> defaults{
+                {QStringLiteral("Video"), QStringLiteral("mp4,mkv,webm,avi,mov,m4v,mpeg,mpg,ts,m3u8")},
+                {QStringLiteral("Music"), QStringLiteral("mp3,m4a,aac,flac,wav,ogg,opus,wma")},
+                {QStringLiteral("Documents"), QStringLiteral("pdf,doc,docx,xls,xlsx,ppt,pptx,txt,rtf,odt,ods,csv")},
+                {QStringLiteral("Programs"), QStringLiteral("exe,msi,msix,appx,zip,7z,rar,iso,dmg,deb,rpm")}
+            };
+            auto *rule = new QLineEdit(settings.value(QStringLiteral("categoryRules/%1").arg(category), defaults.value(category)).toString(), general);
+            rule->setPlaceholderText(QStringLiteral("Comma-separated extensions, e.g. pdf,docx"));
+            categoryRules.insert(category, rule);
+            g->addRow(QStringLiteral("%1 extensions").arg(category), rule);
+        }
     }
     auto *note = new QLabel(QStringLiteral("HTTP/HTTPS only. Magnet links and .torrent files use the BitTorrent engine. The bandwidth limit applies to HTTP and BitTorrent downloads."), general);
     note->setWordWrap(true);
@@ -1111,6 +1357,8 @@ void MainWindow::showSettings(){
     downloadManager_->setBandwidthLimit(limit);
     settings.setValue(QStringLiteral("proxy/type"), proxyType->currentIndex());
     settings.setValue(QStringLiteral("completion/action"), completion->currentIndex());
+    for (auto it = categoryRules.cbegin(); it != categoryRules.cend(); ++it)
+        settings.setValue(QStringLiteral("categoryRules/%1").arg(it.key()), it.value()->text().trimmed().toLower());
     for (auto it = categoryPaths.cbegin(); it != categoryPaths.cend(); ++it) {
         const QString path = it.value()->text().trimmed();
         if (!path.isEmpty()) {
