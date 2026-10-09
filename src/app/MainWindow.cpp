@@ -1283,16 +1283,6 @@ void MainWindow::showLinkExtractor() {
         scheduleHours->setValue(qBound(1,obj.value(QStringLiteral("scheduleHours")).toInt(24),168));
         status->setText(QStringLiteral("Loaded project: %1").arg(name));
     });
-    auto *rerunTimer = new QTimer(&dialog);
-    connect(&dialog,&QDialog::accepted,rerunTimer,&QTimer::stop);
-    connect(schedule,&QCheckBox::toggled,&dialog,[rerunTimer,scheduleHours](bool enabled) {
-        if (enabled) rerunTimer->start(scheduleHours->value()*60*60*1000); else rerunTimer->stop();
-    });
-    connect(scheduleHours,qOverload<int>(&QSpinBox::valueChanged),&dialog,[rerunTimer,schedule,scheduleHours](int) {
-        if (schedule->isChecked()) rerunTimer->start(scheduleHours->value()*60*60*1000);
-    });
-    connect(rerunTimer,&QTimer::timeout,&dialog,[&] { if (schedule->isChecked() && fetch->isEnabled()) runExtraction(); });
-    if (schedule->isChecked()) rerunTimer->start(scheduleHours->value()*60*60*1000);
     connect(close,&QDialogButtonBox::rejected,&dialog,&QDialog::reject);
     dialog.exec();
 }
