@@ -12,6 +12,10 @@
 #include <QtEndian>
 #include <QApplication>
 #include <QDesktopServices>
+#include <QDropEvent>
+#include <QDragEnterEvent>
+#include <QMimeData>
+#include <QDrag>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QFormLayout>
@@ -125,6 +129,19 @@ QString lightThemeOverrides() {
         QProgressBar{background:#e4e8f0;color:#263247;}
     )");
 }
+class DownloadTable final : public QTableWidget {
+public:
+    explicit DownloadTable(QWidget *parent=nullptr):QTableWidget(parent){}
+    std::function<QString()> dragPath;
+protected:
+    void startDrag(Qt::DropActions supportedActions) override {
+        const QString path=dragPath?dragPath():QString();
+        if(path.isEmpty()||!QFileInfo::exists(path)){QTableWidget::startDrag(supportedActions);return;}
+        auto *mime=new QMimeData();
+        mime->setUrls({QUrl::fromLocalFile(path)});
+        QDrag drag(this);drag.setMimeData(mime);drag.exec(Qt::CopyAction);
+    }
+};
 void tintRow(QTableWidget *table, int row, const QColor &tone) {
     for (int col = 0; col < table->columnCount(); ++col)
         if (auto *item = table->item(row, col)) item->setBackground(tone);
@@ -151,10 +168,18 @@ MainWindow::MainWindow(QWidget *parent):QMainWindow(parent),
 urlEdit_(new QLineEdit(this)),addButton_(new QPushButton(QStringLiteral("＋ Add"),this)),
 pauseButton_(new QPushButton(QStringLiteral("Pause"),this)),resumeButton_(new QPushButton(QStringLiteral("Resume"),this)),cancelButton_(new QPushButton(QStringLiteral("Cancel"),this)),
 removeButton_(new QPushButton(QStringLiteral("Remove"),this)),
-openButton_(new QPushButton(QStringLiteral("Open"),this)), recheckButton_(new QPushButton(QStringLiteral("Recheck"),this)),downloadsTable_(new QTableWidget(this)),
+openButton_(new QPushButton(QStringLiteral("Open"),this)), recheckButton_(new QPushButton(QStringLiteral("Recheck"),this)),downloadsTable_(new DownloadTable(this)),
 statusLabel_(new QLabel(QStringLiteral("Ready"),this)),downloadManager_(new DownloadManager(this)),torrentEngine_(new TorrentEngine(this)),scheduler_(new Scheduler(this)),
 browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),trayIcon_(new QSystemTrayIcon(this)),trayMenu_(new QMenu(this)){
     setWindowTitle("Beatit");setWindowIcon(beatitIcon());setMinimumSize(1050,650);resize(1180,720);
+    setAcceptDrops(true);
+    downloadsTable_->setDragEnabled(true);
+    static_cast<DownloadTable*>(downloadsTable_)->dragPath=[this] {
+        const QString id=selectedId();
+        if(id.isEmpty())return QString();
+        if(id.startsWith(QStringLiteral("torrent-")))return torrentEngine_->torrentSavePath(id);
+        return paths_.value(id);
+    };
 
     QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
     downloadManager_->setHttpConnections(settings.value(QStringLiteral("http/connections"), 8).toInt());
@@ -1570,6 +1595,48 @@ void MainWindow::showSelectedDetails(){
 }
 
 void MainWindow::setupTray(){trayIcon_->setIcon(windowIcon());trayIcon_->setToolTip("Beatit Download Manager");trayMenu_->addAction("Show Beatit",this,&MainWindow::showFromTray);trayMenu_->addSeparator();trayMenu_->addAction("Exit",this,&MainWindow::exitFromTray);trayIcon_->setContextMenu(trayMenu_);connect(trayIcon_,&QSystemTrayIcon::activated,this,[this](QSystemTrayIcon::ActivationReason r){if(r==QSystemTrayIcon::DoubleClick||r==QSystemTrayIcon::Trigger)showFromTray();});trayIcon_->show();}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent *event) {
+    if(event->mimeData()->hasUrls() || event->mimeData()->hasText()) event->acceptProposedAction();
+    else event->ignore();
+}
+void MainWindow::dropEvent(QDropEvent *event) {
+    bool handled=false;
+    if(event->mimeData()->hasUrls()) {
+        for(const QUrl &item:event->mimeData()->urls()) {
+            if(item.isLocalFile()) {
+                const QString path=item.toLocalFile();
+                if(path.endsWith(QStringLiteral(".torrent"),Qt::CaseInsensitive)) {
+                    torrentEngine_->addTorrentFile(path,QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));
+                    handled=true;
+                } else if(path.endsWith(QStringLiteral(".txt"),Qt::CaseInsensitive) && QFileInfo(path).isFile()) {
+                    QFile file(path);
+                    if(file.open(QIODevice::ReadOnly|QIODevice::Text)) {
+                        const QStringList lines=QString::fromUtf8(file.readAll()).split(QRegularExpression(QStringLiteral("[\\r\\n]+")),Qt::SkipEmptyParts);
+                        for(QString line:lines) {
+                            line=line.trimmed();
+                            const QUrl url(line);
+                            if(url.isValid() && (url.scheme()==QStringLiteral("http")||url.scheme()==QStringLiteral("https"))) {
+                                urlEdit_->setText(line);addDownload();handled=true;
+                            }
+                        }
+                    }
+                }
+            } else if(item.isValid() && (item.scheme()==QStringLiteral("http")||item.scheme()==QStringLiteral("https")||item.scheme()==QStringLiteral("magnet"))) {
+                handleExternalCommand({item.toString()});handled=true;
+            }
+        }
+    } else if(event->mimeData()->hasText()) {
+        const QString text=event->mimeData()->text().trimmed();
+        const QUrl url(text);
+        if(url.isValid() && (url.scheme()==QStringLiteral("http")||url.scheme()==QStringLiteral("https")||url.scheme()==QStringLiteral("magnet"))) {
+            handleExternalCommand({text});handled=true;
+        }
+    }
+    if(handled) event->acceptProposedAction();
+    else {event->ignore();statusLabel_->setText(QStringLiteral("Drop HTTP/HTTPS URLs, magnet links, .torrent files, or a text file containing URLs."));}
+}
+
 void MainWindow::closeEvent(QCloseEvent*e){if(!reallyQuit_&&trayIcon_->isVisible()){hide();trayIcon_->showMessage("Beatit","Beatit is still running in the system tray.",QSystemTrayIcon::Information,2500);e->ignore();return;}e->accept();}
 void MainWindow::showFromTray(){showNormal();raise();activateWindow();}
 void MainWindow::exitFromTray(){reallyQuit_=true;close();}
