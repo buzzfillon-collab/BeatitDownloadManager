@@ -1004,7 +1004,26 @@ void MainWindow::showSettings(){
     completion->addItems({QStringLiteral("Do nothing"), QStringLiteral("Open downloaded file"), QStringLiteral("Open containing folder")});
     completion->setCurrentIndex(qBound(0, settings.value(QStringLiteral("completion/action"), 0).toInt(), 2));
     g->addRow(QStringLiteral("After download completes"), completion);
-    auto *note = new QLabel(QStringLiteral("The bandwidth limit applies to HTTP and BitTorrent downloads. Category folders are created automatically; each category's destination can be customized in settings."), general);
+
+    QHash<QString, QLineEdit*> categoryPaths;
+    const QString downloadRoot = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    for (const QString &category : {QStringLiteral("Video"), QStringLiteral("Music"), QStringLiteral("Documents"), QStringLiteral("Programs"), QStringLiteral("Other")}) {
+        auto *pathEdit = new QLineEdit(settings.value(QStringLiteral("categories/%1").arg(category),
+            QDir(downloadRoot).filePath(category)).toString(), general);
+        auto *browse = new QPushButton(QStringLiteral("Browse…"), general);
+        auto *pathRow = new QWidget(general);
+        auto *pathLayout = new QHBoxLayout(pathRow);
+        pathLayout->setContentsMargins(0,0,0,0);
+        pathLayout->addWidget(pathEdit, 1);
+        pathLayout->addWidget(browse);
+        connect(browse, &QPushButton::clicked, &dialog, [pathEdit, &dialog] {
+            const QString chosen = QFileDialog::getExistingDirectory(&dialog, QStringLiteral("Choose category folder"), pathEdit->text());
+            if (!chosen.isEmpty()) pathEdit->setText(chosen);
+        });
+        categoryPaths.insert(category, pathEdit);
+        g->addRow(QStringLiteral("%1 folder").arg(category), pathRow);
+    }
+    auto *note = new QLabel(QStringLiteral("HTTP/HTTPS only. Magnet links and .torrent files use the BitTorrent engine. The bandwidth limit applies to HTTP and BitTorrent downloads."), general);
     note->setWordWrap(true);
     g->addRow(QString(), note);
     tabs->addTab(general, QStringLiteral("General"));
@@ -1090,6 +1109,13 @@ void MainWindow::showSettings(){
     downloadManager_->setBandwidthLimit(limit);
     settings.setValue(QStringLiteral("proxy/type"), proxyType->currentIndex());
     settings.setValue(QStringLiteral("completion/action"), completion->currentIndex());
+    for (auto it = categoryPaths.cbegin(); it != categoryPaths.cend(); ++it) {
+        const QString path = it.value()->text().trimmed();
+        if (!path.isEmpty()) {
+            QDir().mkpath(path);
+            settings.setValue(QStringLiteral("categories/%1").arg(it.key()), QDir::cleanPath(path));
+        }
+    }
     settings.setValue(QStringLiteral("proxy/host"), proxyHost->text().trimmed());
     settings.setValue(QStringLiteral("proxy/port"), proxyPort->value());
     downloadManager_->setProxy(proxyHost->text().trimmed(), proxyPort->value(), proxyType->currentIndex());
