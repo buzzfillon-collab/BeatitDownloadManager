@@ -66,6 +66,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <functional>
+#include <tuple>
 #include <memory>
 
 namespace {
@@ -2206,47 +2207,73 @@ void MainWindow::runSyncChecks() {
     syncCheckRunning_=true;
     auto *network=new QNetworkAccessManager(this);
     auto remaining=std::make_shared<int>(due.size());
+    auto processResult=[this,network,remaining](const QString &id,bool ok,const QString &etag,const QString &modified,qint64 size) {
+        QSettings cfg(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
+        QJsonArray current=QJsonDocument::fromJson(cfg.value(QStringLiteral("sync/jobs")).toByteArray()).array();
+        for(int i=0;i<current.size();++i) {
+            QJsonObject job=current.at(i).toObject();
+            if(job.value(QStringLiteral("id")).toString()!=id)continue;
+            if(ok) {
+                const QString validator=(etag.isEmpty()&&modified.isEmpty()&&size<=0)?QString():QStringLiteral("%1|%2|%3").arg(etag,modified).arg(size);
+                const QString previous=job.value(QStringLiteral("lastValidator")).toString();
+                if(!validator.isEmpty())job.insert(QStringLiteral("lastValidator"),validator);
+                if(!previous.isEmpty()&&!validator.isEmpty()&&previous!=validator) {
+                    const QString url=job.value(QStringLiteral("url")).toString();
+                    const QString category=categoryForUrl(url);const QString destination=categoryDestination(category);
+                    QDir().mkpath(destination);downloadManager_->addUrl(url,destination,category);
+                    statusLabel_->setText(QStringLiteral("Sync detected a changed file and queued it: %1").arg(QUrl(url).fileName()));
+                } else if(previous.isEmpty()&&!validator.isEmpty()) {
+                    statusLabel_->setText(QStringLiteral("Sync baseline recorded for %1").arg(QUrl(job.value(QStringLiteral("url")).toString()).fileName()));
+                } else if(validator.isEmpty()) {
+                    statusLabel_->setText(QStringLiteral("Sync skipped: server supplied no ETag, Last-Modified, or usable size validator."));
+                }
+            } else {
+                statusLabel_->setText(QStringLiteral("Sync check failed for %1").arg(QUrl(job.value(QStringLiteral("url")).toString()).host()));
+            }
+            current.replace(i,job);break;
+        }
+        cfg.setValue(QStringLiteral("sync/jobs"),QJsonDocument(current).toJson(QJsonDocument::Compact));
+        --(*remaining);
+        if(*remaining<=0){syncCheckRunning_=false;network->deleteLater();}
+    };
+    auto readMetadata=[](QNetworkReply *reply) {
+        const QString etag=reply->rawHeader("ETag").trimmed();
+        const QString modified=reply->header(QNetworkRequest::LastModifiedHeader).toDateTime().toUTC().toString(Qt::ISODate);
+        qint64 size=reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
+        static const QRegularExpression totalFromRange(QStringLiteral(R"re(/(\d+)\s*$)re"));
+        const auto match=totalFromRange.match(QString::fromLatin1(reply->rawHeader("Content-Range")));
+        if(match.hasMatch())size=match.captured(1).toLongLong();
+        const int status=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const bool ok=reply->error()==QNetworkReply::NoError&&status>=200&&status<400;
+        return std::tuple<bool,QString,QString,qint64>{ok,etag,modified,size};
+    };
     for(const QString &id:due) {
         QJsonObject job;
         for(const QJsonValue &v:*jobs)if(v.toObject().value(QStringLiteral("id")).toString()==id){job=v.toObject();break;}
         const QUrl url(job.value(QStringLiteral("url")).toString());
         QNetworkRequest request(url);request.setRawHeader("User-Agent","BeatitDownloadManager/0.1");request.setTransferTimeout(20000);
         QNetworkReply *reply=network->head(request);
-        connect(reply,&QNetworkReply::finished,this,[this,reply,network,remaining,id] {
-            const bool ok=reply->error()==QNetworkReply::NoError && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()>=200 && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()<400;
-            const QString etag=reply->rawHeader("ETag").trimmed();
-            const QString modified=reply->header(QNetworkRequest::LastModifiedHeader).toDateTime().toUTC().toString(Qt::ISODate);
-            const qint64 size=reply->header(QNetworkRequest::ContentLengthHeader).toLongLong();
-            reply->deleteLater();
-            QSettings cfg(QStringLiteral("Beatit"),QStringLiteral("Beatit"));
-            QJsonArray current=QJsonDocument::fromJson(cfg.value(QStringLiteral("sync/jobs")).toByteArray()).array();
-            for(int i=0;i<current.size();++i) {
-                QJsonObject job=current.at(i).toObject();
-                if(job.value(QStringLiteral("id")).toString()!=id)continue;
-                if(ok) {
-                    const QString validator=(etag.isEmpty() && modified.isEmpty() && size<=0) ? QString() : QStringLiteral("%1|%2|%3").arg(etag,modified).arg(size);
-                    const QString previous=job.value(QStringLiteral("lastValidator")).toString();
-                    if(!validator.isEmpty()) job.insert(QStringLiteral("lastValidator"),validator);
-                    if(!previous.isEmpty() && !validator.isEmpty() && previous!=validator) {
-                        const QString url=job.value(QStringLiteral("url")).toString();
-                        const QString category=categoryForUrl(url);const QString destination=categoryDestination(category);
-                        QDir().mkpath(destination);downloadManager_->addUrl(url,destination,category);
-                        statusLabel_->setText(QStringLiteral("Sync detected a changed file and queued it: %1").arg(QUrl(url).fileName()));
-                    } else if(previous.isEmpty()) {
-                        statusLabel_->setText(QStringLiteral("Sync baseline recorded for %1").arg(QUrl(job.value(QStringLiteral("url")).toString()).fileName()));
-                    }
-                } else {
-                    statusLabel_->setText(QStringLiteral("Sync check failed for %1").arg(QUrl(job.value(QStringLiteral("url")).toString()).host()));
-                }
-                current.replace(i,job);break;
+        connect(reply,&QNetworkReply::finished,this,[this,reply,network,id,processResult,readMetadata] {
+            const int status=reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            const bool needsFallback=reply->error()!=QNetworkReply::NoError||status==405||status==501;
+            if(needsFallback) {
+                const QUrl url=reply->url();
+                reply->deleteLater();
+                QNetworkRequest request(url);request.setRawHeader("User-Agent","BeatitDownloadManager/0.1");
+                request.setRawHeader("Range","bytes=0-0");request.setTransferTimeout(20000);
+                QNetworkReply *fallback=network->get(request);
+                connect(fallback,&QNetworkReply::downloadProgress,fallback,[fallback](qint64 received,qint64){if(received>1024*1024)fallback->abort();});
+                connect(fallback,&QNetworkReply::finished,this,[fallback,id,processResult,readMetadata] {
+                    const auto [ok,etag,modified,size]=readMetadata(fallback);
+                    fallback->deleteLater();processResult(id,ok,etag,modified,size);
+                });
+                return;
             }
-            cfg.setValue(QStringLiteral("sync/jobs"),QJsonDocument(current).toJson(QJsonDocument::Compact));
-            --(*remaining);
-            if(*remaining<=0){syncCheckRunning_=false;network->deleteLater();}
+            const auto [ok,etag,modified,size]=readMetadata(reply);
+            reply->deleteLater();processResult(id,ok,etag,modified,size);
         });
     }
 }
-
 void MainWindow::showQueueManager() {
     QDialog dialog(this); dialog.setWindowTitle(QStringLiteral("Download queues")); dialog.resize(540,420);
     auto *layout=new QVBoxLayout(&dialog); auto *list=new QListWidget(&dialog);
