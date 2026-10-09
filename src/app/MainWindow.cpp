@@ -892,8 +892,11 @@ void MainWindow::showLinkExtractor() {
     *crawlFn = [&,weakCrawl](QUrl page) {
         page.setFragment(QString());
         const QString normalized = page.toString(QUrl::FullyEncoded);
-        if (seenPages->contains(normalized) || pageCount && *pageCount >= maxPages->value()) {
-            if (pendingPages->isEmpty()) status->setText(QStringLiteral("Extracted %1 unique links from %2 pages.").arg(links->count()).arg(*pageCount));
+        if (seenPages->contains(normalized) || *pageCount >= maxPages->value()) {
+            if (pendingPages->isEmpty()) {
+                status->setText(QStringLiteral("Extracted %1 unique links from %2 pages.").arg(links->count()).arg(*pageCount));
+                fetch->setEnabled(true);
+            }
             return;
         }
         seenPages->insert(normalized);
@@ -940,6 +943,7 @@ void MainWindow::showLinkExtractor() {
             } else {
                 status->setText(QStringLiteral("Extracted %1 unique links from %2 pages%3.")
                     .arg(links->count()).arg(*pageCount).arg(netError == QNetworkReply::NoError ? QString() : QStringLiteral(" (some pages failed)")));
+                fetch->setEnabled(true);
             }
         });
     };
@@ -951,6 +955,7 @@ void MainWindow::showLinkExtractor() {
         }
         links->clear(); seenPages->clear(); seenLinks->clear(); pendingPages->clear(); *pageCount = 0;
         *baseHost = url.host();
+        fetch->setEnabled(false);
         pendingPages->append(url.toString(QUrl::FullyEncoded));
         (*crawlFn)(QUrl(pendingPages->takeFirst()));
     });
