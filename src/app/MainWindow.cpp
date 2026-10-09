@@ -888,7 +888,8 @@ void MainWindow::showLinkExtractor() {
     auto *pageCount = new int(0);
     auto *baseHost = new QString();
     auto crawlFn = std::make_shared<std::function<void(QUrl)>>();
-    *crawlFn = [&,crawlFn](QUrl page) {
+    std::weak_ptr<std::function<void(QUrl)>> weakCrawl = crawlFn;
+    *crawlFn = [&,weakCrawl](QUrl page) {
         page.setFragment(QString());
         const QString normalized = page.toString(QUrl::FullyEncoded);
         if (seenPages->contains(normalized) || pageCount && *pageCount >= maxPages->value()) {
@@ -903,7 +904,7 @@ void MainWindow::showLinkExtractor() {
         request.setTransferTimeout(15000);
         request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
         QNetworkReply *reply = network->get(request);
-        connect(reply, &QNetworkReply::finished, &dialog, [&,reply,page,crawlFn] {
+        connect(reply, &QNetworkReply::finished, &dialog, [&,reply,page,weakCrawl] {
             const QByteArray html = reply->readAll();
             const auto netError = reply->error();
             reply->deleteLater();
@@ -935,7 +936,7 @@ void MainWindow::showLinkExtractor() {
             }
             if (!pendingPages->isEmpty() && *pageCount < maxPages->value()) {
                 const QUrl next(pendingPages->takeFirst());
-                (*crawlFn)(next);
+                if (auto nextFetch = weakCrawl.lock()) (*nextFetch)(next);
             } else {
                 status->setText(QStringLiteral("Extracted %1 unique links from %2 pages%3.")
                     .arg(links->count()).arg(*pageCount).arg(netError == QNetworkReply::NoError ? QString() : QStringLiteral(" (some pages failed)")));
