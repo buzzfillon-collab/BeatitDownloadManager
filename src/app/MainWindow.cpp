@@ -8,6 +8,7 @@
 #include <QAbstractItemView>
 #include <QCloseEvent>
 #include <QClipboard>
+#include <QCryptographicHash>
 #include <QApplication>
 #include <QDesktopServices>
 #include <QCheckBox>
@@ -196,6 +197,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     auto *grabButton=new QPushButton(QStringLiteral("Grab links"),toolbar);grabButton->setObjectName("toolbarGrabLinksButton");toolbarLayout->addWidget(grabButton);
     auto *queuesButton=new QPushButton(QStringLiteral("Queues"),toolbar);queuesButton->setObjectName("toolbarQueuesButton");
     toolbarLayout->addWidget(queuesButton);
+    auto *updateButton=new QPushButton(QStringLiteral("Update"),toolbar);updateButton->setObjectName("toolbarUpdateButton");toolbarLayout->addWidget(updateButton);
     auto *settingsButton=new QPushButton(QStringLiteral("⚙"),toolbar);
     settingsButton->setToolTip(QStringLiteral("Settings"));
     settingsButton->setFixedWidth(42);
@@ -361,6 +363,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         menu.exec(downloadsTable_->viewport()->mapToGlobal(pos));
     });
     connect(settingsButton,&QPushButton::clicked,this,&MainWindow::showSettings);
+    connect(updateButton,&QPushButton::clicked,this,&MainWindow::checkForUpdates);
     connect(QApplication::clipboard(), &QClipboard::dataChanged, this, [this] {
         QSettings cfg(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
         if (!cfg.value(QStringLiteral("clipboard/monitor"), false).toBool()) return;
@@ -1607,6 +1610,81 @@ void MainWindow::configureChecksumSelected(){
     } else {
         statusLabel_->setText(QStringLiteral("SHA-256 configured; it will be verified after download."));
     }
+}
+
+
+void MainWindow::checkForUpdates() {
+    auto *network = new QNetworkAccessManager(this);
+    QNetworkRequest request(QUrl(QStringLiteral("https://api.github.com/repos/buzzfillon-collab/BeatitDownloadManager/releases/latest")));
+    request.setRawHeader("User-Agent","BeatitDownloadManager-Updater/1.0");
+    request.setRawHeader("Accept","application/vnd.github+json");
+    request.setTransferTimeout(20000);
+    QNetworkReply *reply=network->get(request);
+    connect(reply,&QNetworkReply::finished,this,[this,network,reply] {
+        const QByteArray body=reply->readAll();
+        const auto error=reply->error();
+        reply->deleteLater();
+        if(error!=QNetworkReply::NoError) {
+            QMessageBox::warning(this,QStringLiteral("Update check failed"),QStringLiteral("Could not contact GitHub Releases: %1").arg(reply->errorString()));
+            network->deleteLater(); return;
+        }
+        const QJsonDocument doc=QJsonDocument::fromJson(body);
+        if(!doc.isObject()) { QMessageBox::warning(this,QStringLiteral("Update check failed"),QStringLiteral("GitHub returned invalid release metadata."));network->deleteLater();return; }
+        const QJsonObject release=doc.object();
+        const QString tag=release.value(QStringLiteral("tag_name")).toString().trimmed();
+        if(tag.isEmpty()) { QMessageBox::information(this,QStringLiteral("No release"),QStringLiteral("No published stable release is available yet."));network->deleteLater();return; }
+        if(tag==QStringLiteral("v0.1.0-beta1")) { QMessageBox::information(this,QStringLiteral("Beatit is up to date"),QStringLiteral("You are running the latest published version (%1).").arg(tag));network->deleteLater();return; }
+        QString installerUrl,checksumsUrl;
+        const QJsonArray assets=release.value(QStringLiteral("assets")).toArray();
+        for(const QJsonValue &value:assets) {
+            const QJsonObject asset=value.toObject();
+            const QString name=asset.value(QStringLiteral("name")).toString();
+            if(name==QStringLiteral("BeatitDownloadManager-win64-setup.exe")) installerUrl=asset.value(QStringLiteral("browser_download_url")).toString();
+            else if(name==QStringLiteral("SHA256SUMS.txt")) checksumsUrl=asset.value(QStringLiteral("browser_download_url")).toString();
+        }
+        if(installerUrl.isEmpty()||checksumsUrl.isEmpty()) {
+            QMessageBox::warning(this,QStringLiteral("Update unavailable"),QStringLiteral("Release %1 does not contain both the Windows installer and SHA256SUMS.txt.").arg(tag));
+            network->deleteLater();return;
+        }
+        if(QMessageBox::question(this,QStringLiteral("Beatit update available"),QStringLiteral("Version %1 is available. Download and verify the installer?").arg(tag),
+            QMessageBox::Yes|QMessageBox::No,QMessageBox::No)!=QMessageBox::Yes) {network->deleteLater();return;}
+        auto downloadAsset=std::make_shared<std::function<void(QString,std::function<void(QByteArray,QString)>)>>();
+        *downloadAsset=[network,this](QString url,std::function<void(QByteArray,QString)> done) {
+            QNetworkRequest req{QUrl(url)}; req.setRawHeader("User-Agent","BeatitDownloadManager-Updater/1.0"); req.setTransferTimeout(60000);
+            QNetworkReply *assetReply=network->get(req);
+            connect(assetReply,&QNetworkReply::finished,this,[assetReply,done] {
+                const QByteArray data=assetReply->readAll();
+                const QString error=assetReply->error()==QNetworkReply::NoError?QString():assetReply->errorString();
+                assetReply->deleteLater(); done(data,error);
+            });
+        };
+        (*downloadAsset)(installerUrl,[this,network,downloadAsset,checksumsUrl,tag](QByteArray installer,QString error) {
+            if(!error.isEmpty()||installer.isEmpty()) {QMessageBox::warning(this,QStringLiteral("Update download failed"),error.isEmpty()?QStringLiteral("The installer was empty."):error);network->deleteLater();return;}
+            (*downloadAsset)(checksumsUrl,[this,network,tag,installer](QByteArray manifest,QString checksumError) {
+                if(!checksumError.isEmpty()) {QMessageBox::warning(this,QStringLiteral("Update verification failed"),checksumError);network->deleteLater();return;}
+                const QRegularExpression line(QStringLiteral(R"re(^([A-Fa-f0-9]{64})\s+BeatitDownloadManager-win64-setup\.exe\s*$)re"),QRegularExpression::MultilineOption);
+                const auto match=line.match(QString::fromUtf8(manifest));
+                if(!match.hasMatch()) {QMessageBox::warning(this,QStringLiteral("Update verification failed"),QStringLiteral("The release checksum manifest has no valid installer entry."));network->deleteLater();return;}
+                const QByteArray expected=match.captured(1).toLatin1().toLower();
+                const QByteArray actual=QCryptographicHash::hash(installer,QCryptographicHash::Sha256).toHex().toLower();
+                if(expected!=actual) {QMessageBox::critical(this,QStringLiteral("Update rejected"),QStringLiteral("SHA-256 verification failed. The installer will not be executed."));network->deleteLater();return;}
+                const QString dir=QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).filePath(QStringLiteral("BeatitUpdater"));
+                if(!QDir().mkpath(dir)) {QMessageBox::warning(this,QStringLiteral("Update failed"),QStringLiteral("Could not create the temporary update folder."));network->deleteLater();return;}
+                const QString path=QDir(dir).filePath(QStringLiteral("BeatitDownloadManager-win64-setup.exe"));
+                QFile file(path);
+                if(!file.open(QIODevice::WriteOnly|QIODevice::Truncate)||file.write(installer)!=installer.size()||!file.flush()) {
+                    file.close();QMessageBox::warning(this,QStringLiteral("Update failed"),QStringLiteral("Could not save the verified installer."));network->deleteLater();return;
+                }
+                file.close();
+                if(QMessageBox::question(this,QStringLiteral("Installer verified"),QStringLiteral("SHA-256 verified for %1. Launch the installer and close Beatit so it can update the application?").arg(tag),
+                    QMessageBox::Yes|QMessageBox::No,QMessageBox::No)==QMessageBox::Yes) {
+                    if(QProcess::startDetached(path,{})) {network->deleteLater();QApplication::quit();return;}
+                    QMessageBox::warning(this,QStringLiteral("Update failed"),QStringLiteral("Windows could not launch the installer."));
+                }
+                network->deleteLater();
+            });
+        });
+    });
 }
 
 void MainWindow::showSettings(){
