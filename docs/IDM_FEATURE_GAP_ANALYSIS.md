@@ -26,19 +26,19 @@ Comparison target: Internet Download Manager (IDM), using IDM's official feature
 
 ### P1 — High-value IDM workflow parity
 - [ ] **Multiple named download queues.** Persist named queues, stable per-queue order, per-queue concurrency, move items between queues, Start/Stop Queue, retry failed items, and integrate queue windows with the existing global scheduler. Keep global concurrency/bandwidth as hard upper bounds.
-- [ ] **Full download Properties dialog.** Edit destination, filename, description, URL, category, connection count, proxy override, custom User-Agent, and expected SHA-256. Validate before saving; pause before mutating an active transfer's URL/destination. No credentials fields.
-- [ ] **Download All / selected-link extraction.** Accept a page URL or pasted HTML, extract links, filter by extension/domain, preview selections, normalize/deduplicate URLs, then enqueue chosen items. Do not bypass access controls.
-- [ ] **Site Grabber.** Bounded same-domain crawl by default, depth and request limits, include/exclude patterns, file-type filters, cancellation, preview, persisted projects, and scheduled re-runs. Respect site access restrictions.
-- [ ] **Clipboard URL monitor.** Optional setting; recognize supported HTTP/HTTPS URLs and show a confirmation dialog before enqueueing. Off by default if false positives are disruptive.
+- [x] **Full download Properties dialog.** Edit destination, filename, description, URL, category, connection count, proxy override, custom User-Agent, and expected SHA-256. Validate before saving; pause before mutating an active transfer's URL/destination. No credentials fields.
+- [x] **Download All / selected-link extraction.** Accept a page URL or pasted HTML, extract links, filter by extension/domain, preview selections, normalize/deduplicate URLs, then enqueue chosen items. Do not bypass access controls.
+- [x] **Site Grabber.** Bounded same-domain crawl by default, depth and request limits, include/exclude patterns, file-type filters, cancellation, preview, persisted projects, and scheduled re-runs. Respect site access restrictions.
+- [x] **Clipboard URL monitor.** Optional setting; recognize supported HTTP/HTTPS URLs and show a confirmation dialog before enqueueing. Off by default if false positives are disruptive.
 - [ ] **IDM-style adaptive range splitting.** The core scheduler already dispatches up to 32 pre-partitioned ranges across 1–8 workers and assigns the next pending range as workers finish. The remaining difference is dynamically splitting the largest unfinished range during a live transfer (and any safe reuse of a connection), which is an optimization—not a missing segmented-download engine. Only pursue after throughput and resume-integrity benchmarks.
 
 ### P2 — Useful polish
-- [ ] **ZIP preview.** Inspect archive entries before download/extraction, with path-traversal and archive-bomb protections. Do not auto-extract by default.
-- [ ] **External antivirus hook.** Optional executable + argument template, safe path quoting, explicit completion status, and timeout/error handling. Never imply a scan occurred if it did not.
-- [ ] **Queue completion actions.** Optionally shut down the PC only after all intended downloads are complete; require explicit opt-in and provide cancellation.
-- [ ] **Customizable table columns and toolbar.** User-selectable columns/order, density, and a maintainable light/dark theme; avoid a large skin ecosystem unless there is demand.
-- [ ] **Periodic synchronization.** Optional queue type that checks remote modification metadata and re-downloads changed files. Requires careful handling of servers without reliable validators.
-- [ ] **Built-in updater.** Check official GitHub Releases, verify a published SHA-256 manifest, prompt before installation, preserve user data, and never execute an unverified binary.
+- [x] **ZIP preview.** Remote central-directory preview via bounded HTTP Range requests; flags path traversal and extreme compression ratios; does not extract.
+- [x] **External antivirus hook.** Optional executable + argument template, safe path quoting, explicit completion status, and timeout/error handling. Never imply a scan occurred if it did not.
+- [x] **Queue completion actions.** Optionally shut down the PC only after all intended downloads are complete; require explicit opt-in and provide cancellation.
+- [x] **Customizable table columns and toolbar.** User-selectable columns/order, density, and a maintainable light/dark theme; avoid a large skin ecosystem unless there is demand.
+- [x] **Periodic synchronization.** Optional queue type that checks remote modification metadata and re-downloads changed files. Requires careful handling of servers without reliable validators.
+- [x] **Built-in updater.** Check official GitHub Releases, verify a published SHA-256 manifest, prompt before installation, preserve user data, and never execute an unverified binary.
 - [ ] **Browser extension store distribution.** Publish signed/listed extension packages where practical; document manual installation for browsers where store publishing is unavailable.
 
 ### P3 — Release / operational checks (separate from feature parity)
