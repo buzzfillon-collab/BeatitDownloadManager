@@ -9,7 +9,7 @@
     knownUrls.add(url);
     if (knownUrls.size > 250) knownUrls.clear();
     chrome.runtime.sendMessage({
-      action: "download-url",
+      action: "media-detected",
       url,
       pageUrl: location.href,
       title: document.title,
@@ -95,6 +95,11 @@
     document.querySelectorAll("video").forEach(attach);
     scanResources();
   }
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.action !== "scan-media") return;
+    scanResources();
+    sendResponse({ ok: true });
+  });
   scan();
   const mutationObserver = new MutationObserver(() => {
     clearTimeout(scanTimer);
