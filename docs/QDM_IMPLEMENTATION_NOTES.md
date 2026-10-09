@@ -15,6 +15,7 @@ Upstream reference: https://github.com/PBhadoo/QDM
 | Automatic file interception | Browser download events are forwarded to Beatit; the browser copy is cancelled only after Beatit acknowledges receipt; extension filter and master toggle are user-configurable |
 | Popup and media grabber | Connection handshake, current-tab handoff, media scan, detected-media list, manual send actions, and editable interception settings |
 | Media discovery | URL patterns, network request type, response MIME type, performance resource entries, and HTML audio/video/source elements identify direct media and HLS/DASH manifests; detections are listed instead of silently auto-downloading every stream |
+| Stream request context | Browser page URL (Referer) and browser User-Agent are passed transiently to yt-dlp for media extraction; browser cookies and saved credentials are not forwarded or persisted |
 | HLS and DASH | Selected .m3u8/.mpd manifests route to yt-dlp; yt-dlp is configured for continuation, retries, and concurrent fragment downloads |
 | Media muxing | Existing FFmpeg toolchain and yt-dlp merge-output options |
 
