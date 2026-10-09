@@ -1,14 +1,32 @@
 #include "DownloadDatabase.h"
 #include <QDir>
 #include <QStandardPaths>
-#include <sqlite3.h>
+#include <sqlite3.h>\n#include <QByteArray>
 
 namespace {
 sqlite3 *asDb(void *p) { return static_cast<sqlite3 *>(p); }
-void execSql(sqlite3 *db, const char *sql) {
+bool execSql(sqlite3 *db, const char *sql) {
     char *error = nullptr;
-    sqlite3_exec(db, sql, nullptr, nullptr, &error);
+    const int rc = sqlite3_exec(db, sql, nullptr, nullptr, &error);
     sqlite3_free(error);
+    return rc == SQLITE_OK;
+}
+bool hasColumn(sqlite3 *db, const char *table, const char *column) {
+    const QByteArray pragma = QByteArray("PRAGMA table_info(") + table + ");";
+    sqlite3_stmt *stmt = nullptr;
+    if (sqlite3_prepare_v2(db, pragma.constData(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+    bool found = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const auto *name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+        if (name && QByteArray(name) == column) { found = true; break; }
+    }
+    sqlite3_finalize(stmt);
+    return found;
+}
+bool ensureColumn(sqlite3 *db, const char *name, const char *definition) {
+    if (hasColumn(db, "downloads", name)) return true;
+    const QByteArray sql = QByteArray("ALTER TABLE downloads ADD COLUMN ") + name + " " + definition + ";";
+    return execSql(db, sql.constData());
 }
 QVector<PersistedDownload> readRows(sqlite3 *db, const char *sql) {
     QVector<PersistedDownload> out;
@@ -29,6 +47,14 @@ QVector<PersistedDownload> readRows(sqlite3 *db, const char *sql) {
         d.updatedAt = sqlite3_column_int64(s, 10);
         d.sha256 = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 11)));
         d.verification = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 12)));
+        d.category = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 13)));
+        d.description = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 14)));
+        d.userAgent = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 15)));
+        d.queueId = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 16)));
+        d.connectionCount = sqlite3_column_int(s, 17);
+        d.proxyType = sqlite3_column_int(s, 18);
+        d.proxyHost = QString::fromUtf8(reinterpret_cast<const char *>(sqlite3_column_text(s, 19)));
+        d.proxyPort = sqlite3_column_int(s, 20);
         out.push_back(std::move(d));
     }
     sqlite3_finalize(s);
@@ -67,20 +93,37 @@ void DownloadDatabase::initialize() {
         "created_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "updated_at INTEGER NOT NULL DEFAULT (unixepoch()),"
         "sha256 TEXT NOT NULL DEFAULT '',verification TEXT NOT NULL DEFAULT '');");
-    execSql(asDb(db_), "ALTER TABLE downloads ADD COLUMN sha256 TEXT NOT NULL DEFAULT '';");
-    execSql(asDb(db_), "ALTER TABLE downloads ADD COLUMN verification TEXT NOT NULL DEFAULT '';");
-    execSql(asDb(db_), "CREATE INDEX IF NOT EXISTS downloads_status ON downloads(status);");
+    // Version 3: additive metadata migration. Existing history/download rows are retained.
+    ok = ok && ensureColumn(db, "sha256", "TEXT NOT NULL DEFAULT ''");
+    ok = ok && ensureColumn(db, "verification", "TEXT NOT NULL DEFAULT ''");
+    ok = ok && ensureColumn(db, "category", "TEXT NOT NULL DEFAULT 'Other'");
+    ok = ok && ensureColumn(db, "description", "TEXT NOT NULL DEFAULT ''");
+    ok = ok && ensureColumn(db, "user_agent", "TEXT NOT NULL DEFAULT ''");
+    ok = ok && ensureColumn(db, "queue_id", "TEXT NOT NULL DEFAULT 'main'");
+    ok = ok && ensureColumn(db, "connection_count", "INTEGER NOT NULL DEFAULT 0");
+    ok = ok && ensureColumn(db, "proxy_type", "INTEGER NOT NULL DEFAULT -1");
+    ok = ok && ensureColumn(db, "proxy_host", "TEXT NOT NULL DEFAULT ''");
+    ok = ok && ensureColumn(db, "proxy_port", "INTEGER NOT NULL DEFAULT 0");
+    ok = ok && execSql(db, "CREATE INDEX IF NOT EXISTS downloads_status ON downloads(status);");
+    ok = ok && execSql(db, "CREATE INDEX IF NOT EXISTS downloads_queue_status ON downloads(queue_id,status);");
+    ok = ok && execSql(db, "PRAGMA user_version=3;");
+    if (ok) return execSql(db, "COMMIT;");
+    execSql(db, "ROLLBACK;");
+    return false;
 }
 
 bool DownloadDatabase::save(const PersistedDownload &d) {
     if (!open()) return false;
     const char *sql =
-        "INSERT INTO downloads(id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,sha256,verification)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+        "INSERT INTO downloads(id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,sha256,verification,category,description,user_agent,queue_id,connection_count,proxy_type,proxy_host,proxy_port)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
         "type=excluded.type,source=excluded.source,destination=excluded.destination,"
         "filename=excluded.filename,status=excluded.status,total_bytes=excluded.total_bytes,"
         "downloaded_bytes=excluded.downloaded_bytes,speed=excluded.speed,error=excluded.error,"
-        "sha256=excluded.sha256,verification=excluded.verification,updated_at=unixepoch();";
+        "sha256=excluded.sha256,verification=excluded.verification,category=excluded.category,"
+        "description=excluded.description,user_agent=excluded.user_agent,queue_id=excluded.queue_id,"
+        "connection_count=excluded.connection_count,proxy_type=excluded.proxy_type,"
+        "proxy_host=excluded.proxy_host,proxy_port=excluded.proxy_port,updated_at=unixepoch();";
     sqlite3_stmt *s = nullptr;
     if (sqlite3_prepare_v2(asDb(db_), sql, -1, &s, nullptr) != SQLITE_OK) return false;
     sqlite3_bind_text(s,1,d.id.toUtf8().constData(),-1,SQLITE_TRANSIENT);
@@ -95,6 +138,14 @@ bool DownloadDatabase::save(const PersistedDownload &d) {
     sqlite3_bind_text(s,10,d.error.toUtf8().constData(),-1,SQLITE_TRANSIENT);
     sqlite3_bind_text(s,11,d.sha256.toUtf8().constData(),-1,SQLITE_TRANSIENT);
     sqlite3_bind_text(s,12,d.verification.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(s,13,d.category.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(s,14,d.description.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(s,15,d.userAgent.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_text(s,16,d.queueId.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_int(s,17,d.connectionCount);
+    sqlite3_bind_int(s,18,d.proxyType);
+    sqlite3_bind_text(s,19,d.proxyHost.toUtf8().constData(),-1,SQLITE_TRANSIENT);
+    sqlite3_bind_int(s,20,d.proxyPort);
     const bool ok = sqlite3_step(s) == SQLITE_DONE;
     sqlite3_finalize(s);
     return ok;
@@ -103,7 +154,7 @@ bool DownloadDatabase::save(const PersistedDownload &d) {
 QVector<PersistedDownload> DownloadDatabase::loadActive() const {
     if (!db_) return {};
     return readRows(asDb(db_),
-        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at,sha256,verification "
+        "SELECT id,type,source,destination,filename,status,total_bytes,downloaded_bytes,speed,error,updated_at,sha256,verification,category,description,user_agent,queue_id,connection_count,proxy_type,proxy_host,proxy_port "
         "FROM downloads WHERE status IN ('Queued','Paused','Downloading','Failed') "
         "ORDER BY updated_at ASC;");
 }
