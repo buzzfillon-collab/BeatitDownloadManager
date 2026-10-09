@@ -809,8 +809,7 @@ void MainWindow::handleExternalCommand(const QStringList &arguments) {
         if (value.isEmpty() || value == QStringLiteral("--hidden")) continue;
         if (value.startsWith(QStringLiteral("magnet:?")) ||
             value.startsWith(QStringLiteral("http://")) ||
-            value.startsWith(QStringLiteral("https://")) ||
-            value.startsWith(QStringLiteral("ftp://"))) {
+            value.startsWith(QStringLiteral("https://"))) {
             urlEdit_->setText(value);
             addDownload();
             showFromTray();
