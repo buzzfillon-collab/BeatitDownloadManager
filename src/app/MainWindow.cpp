@@ -1081,7 +1081,7 @@ void MainWindow::showLinkExtractor() {
     bool cancelled = false;
     auto crawlFn = std::make_shared<std::function<void(QUrl)>>();
     std::weak_ptr<std::function<void(QUrl)>> weakCrawl = crawlFn;
-    auto acceptedByFilters = [includePattern,excludePattern,extensions](const QString &url) {
+    auto acceptedByPatterns = [includePattern,excludePattern](const QString &url) {
         if (!includePattern->text().trimmed().isEmpty()) {
             const QRegularExpression re(includePattern->text().trimmed(), QRegularExpression::CaseInsensitiveOption);
             if (!re.isValid() || !re.match(url).hasMatch()) return false;
@@ -1090,19 +1090,21 @@ void MainWindow::showLinkExtractor() {
             const QRegularExpression re(excludePattern->text().trimmed(), QRegularExpression::CaseInsensitiveOption);
             if (re.isValid() && re.match(url).hasMatch()) return false;
         }
-        const QString filter = extensions->text().trimmed().toLower();
-        if (!filter.isEmpty()) {
-            const QString ext = QFileInfo(QUrl(url).path()).suffix().toLower();
-            QStringList allowed;
-            for (QString token : filter.split(',', Qt::SkipEmptyParts)) {
-                token = token.trimmed(); if (token.startsWith('.')) token.remove(0,1);
-                if (!token.isEmpty()) allowed.append(token);
-            }
-            if (allowed.isEmpty() || !allowed.contains(ext)) return false;
-        }
         return true;
     };
-    auto addHtmlLinks = [&,acceptedByFilters](const QString &html, const QUrl &page, int depth) {
+    auto acceptedByFilters = [acceptedByPatterns,extensions](const QString &url) {
+        if (!acceptedByPatterns(url)) return false;
+        const QString filter = extensions->text().trimmed().toLower();
+        if (filter.isEmpty()) return true;
+        const QString ext = QFileInfo(QUrl(url).path()).suffix().toLower();
+        QStringList allowed;
+        for (QString token : filter.split(',', Qt::SkipEmptyParts)) {
+            token = token.trimmed(); if (token.startsWith('.')) token.remove(0,1);
+            if (!token.isEmpty()) allowed.append(token);
+        }
+        return !allowed.isEmpty() && allowed.contains(ext);
+    };
+    auto addHtmlLinks = [&,acceptedByPatterns,acceptedByFilters](const QString &html, const QUrl &page, int depth) {
         static const QRegularExpression href(QStringLiteral(R"re(href\s*=\s*["']([^"']+)["'])re"), QRegularExpression::CaseInsensitiveOption);
         auto it = href.globalMatch(html);
         while (it.hasNext()) {
@@ -1113,8 +1115,8 @@ void MainWindow::showLinkExtractor() {
             if (!target.isValid() || target.host().isEmpty() ||
                 (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))) continue;
             const QString key = target.toString(QUrl::FullyEncoded);
-            if (!acceptedByFilters(key)) continue;
-            if (!seenLinks.contains(key)) {
+            if (!acceptedByPatterns(key)) continue;
+            if (acceptedByFilters(key) && !seenLinks.contains(key)) {
                 seenLinks.insert(key);
                 auto *item = new QListWidgetItem(key, links);
                 item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
@@ -1142,8 +1144,8 @@ void MainWindow::showLinkExtractor() {
             if (!target.isValid() || target.host().isEmpty() ||
                 (scheme != QStringLiteral("http") && scheme != QStringLiteral("https"))) continue;
             const QString key = target.toString(QUrl::FullyEncoded);
-            if (!acceptedByFilters(key)) continue;
-            if (!seenLinks.contains(key)) {
+            if (!acceptedByPatterns(key)) continue;
+            if (acceptedByFilters(key) && !seenLinks.contains(key)) {
                 seenLinks.insert(key);
                 auto *item = new QListWidgetItem(key, links);
                 item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
@@ -1487,8 +1489,12 @@ void MainWindow::runScheduledSiteGrabber() {
                     const QString url=target.toString(QUrl::FullyEncoded);
                     if(!include.isEmpty()){const QRegularExpression re(include,QRegularExpression::CaseInsensitiveOption);if(!re.isValid()||!re.match(url).hasMatch())continue;}
                     if(!exclude.isEmpty()){const QRegularExpression re(exclude,QRegularExpression::CaseInsensitiveOption);if(re.isValid()&&re.match(url).hasMatch())continue;}
-                    if(!extensionFilter.isEmpty()){QStringList exts;for(QString e:extensionFilter.split(',',Qt::SkipEmptyParts)){e=e.trimmed();if(e.startsWith('.'))e.remove(0,1);if(!e.isEmpty())exts.append(e);}if(exts.isEmpty()||!exts.contains(QFileInfo(target.path()).suffix().toLower()))continue;}
-                    if(!seenLinks->contains(url)){seenLinks->insert(url);links->append(url);}
+                    const bool allowedFileType=[&] {
+                        if(extensionFilter.isEmpty())return true;
+                        QStringList exts;for(QString e:extensionFilter.split(',',Qt::SkipEmptyParts)){e=e.trimmed();if(e.startsWith('.'))e.remove(0,1);if(!e.isEmpty())exts.append(e);}
+                        return !exts.isEmpty()&&exts.contains(QFileInfo(target.path()).suffix().toLower());
+                    }();
+                    if(allowedFileType&&!seenLinks->contains(url)){seenLinks->insert(url);links->append(url);}
                     const QString path=target.path().toLower();
                     const bool htmlPage=path.isEmpty()||path.endsWith(QStringLiteral(".html"))||path.endsWith(QStringLiteral(".htm"))||path.endsWith(QStringLiteral(".php"))||path.endsWith(QStringLiteral(".aspx"));
                     const int depth=depths->value(page.toString(QUrl::FullyEncoded),0);
