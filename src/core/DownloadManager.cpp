@@ -239,8 +239,8 @@ bool DownloadManager::updateProperties(const PersistedDownload &properties) {
          (properties.proxyHost.trimmed().isEmpty() || properties.proxyPort <= 0 || properties.proxyPort > 65535)))
         return false;
     const QUrl sourceUrl(properties.source.trimmed());
-    if (!sourceUrl.isValid() || (sourceUrl.scheme() != QStringLiteral("http") &&
-        sourceUrl.scheme() != QStringLiteral("https"))) return false;
+    if (!sourceUrl.isValid() || sourceUrl.host().isEmpty() ||
+        (sourceUrl.scheme() != QStringLiteral("http") && sourceUrl.scheme() != QStringLiteral("https"))) return false;
     if (active_.contains(properties.id)) {
         if (properties.source != updated.source || properties.destination != updated.destination ||
             properties.filename != updated.filename) return false;
@@ -256,6 +256,9 @@ bool DownloadManager::updateProperties(const PersistedDownload &properties) {
             QVector<MovePair> moves;
             const QString oldPart = oldBase + QStringLiteral(".part");
             const QString newPart = newBase + QStringLiteral(".part");
+            if (QFileInfo::exists(newBase) || QFileInfo::exists(newPart)) return false;
+            for (int i=0;i<32;++i)
+                if (QFileInfo::exists(newPart + QStringLiteral(".%1").arg(i))) return false;
             const QStringList candidates{oldBase, oldPart};
             for (const QString &from : candidates) {
                 if (QFileInfo::exists(from)) {
