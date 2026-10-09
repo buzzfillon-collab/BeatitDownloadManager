@@ -887,7 +887,7 @@ void MainWindow::showLinkExtractor() {
     auto *pendingPages = new QStringList();
     auto *pageCount = new int(0);
     auto *baseHost = new QString();
-    auto *crawlFn = std::make_shared<std::function<void(QUrl)>>();
+    auto crawlFn = std::make_shared<std::function<void(QUrl)>>();
     *crawlFn = [&,crawlFn](QUrl page) {
         page.setFragment(QString());
         const QString normalized = page.toString(QUrl::FullyEncoded);
