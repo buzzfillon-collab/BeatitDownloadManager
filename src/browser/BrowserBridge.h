@@ -10,7 +10,7 @@ public:
     explicit BrowserBridge(QObject *parent = nullptr);
     bool start();
 signals:
-    void captureRequested(const QString &url, const QString &title, const QString &kind);
+    void captureRequested(const QString &url, const QString &title, const QString &kind, const QString &pageUrl, const QString &userAgent);
 private slots:
     void acceptConnection();
     void readSocket();
