@@ -9,7 +9,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QRegularExpression>
-#include <QCryptographicHash>
+#include <QCryptographicHash>\n#include <QSet>
 
 DownloadManager::DownloadManager(QObject *parent) : QObject(parent) {
     database_.open();
@@ -169,6 +169,13 @@ QString DownloadManager::addUrl(const QString &url, const QString &destination) 
     d.type = QStringLiteral("http");
     d.source = url;
     d.destination = destination;
+    const QString folderName = QFileInfo(destination).fileName();
+    static const QSet<QString> knownCategories{QStringLiteral("Video"), QStringLiteral("Music"),
+        QStringLiteral("Documents"), QStringLiteral("Programs"), QStringLiteral("Other")};
+    d.category = knownCategories.contains(folderName) ? folderName : QStringLiteral("Other");
+    d.connectionCount = 0; // Zero means inherit the global HTTP connection setting.
+    d.proxyType = -1;       // Negative means inherit the global proxy setting.
+    d.queueId = QStringLiteral("main");
     d.filename = QUrl(url).fileName();
     if (d.filename.isEmpty()) d.filename = QStringLiteral("download");
     d.status = QStringLiteral("Queued");
