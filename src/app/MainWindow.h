@@ -23,6 +23,7 @@ private slots:
     void openSelected();
     void recheckSelected();
     void showSettings();
+    void checkForUpdates();
     void showFromTray();
     void exitFromTray();
     void handleBrowserCapture(const QString &url, const QString &title, const QString &kind);
