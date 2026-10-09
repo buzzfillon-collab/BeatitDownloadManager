@@ -1269,7 +1269,7 @@ void MainWindow::showLinkExtractor() {
     connect(schedule,&QCheckBox::toggled,&dialog,[rerunTimer,scheduleHours](bool enabled) {
         if (enabled) rerunTimer->start(scheduleHours->value()*60*60*1000); else rerunTimer->stop();
     });
-    connect(scheduleHours,qOverload<int>(&QSpinBox::valueChanged),&dialog,[rerunTimer,schedule](int) {
+    connect(scheduleHours,qOverload<int>(&QSpinBox::valueChanged),&dialog,[rerunTimer,schedule,scheduleHours](int) {
         if (schedule->isChecked()) rerunTimer->start(scheduleHours->value()*60*60*1000);
     });
     connect(rerunTimer,&QTimer::timeout,&dialog,[&] { if (schedule->isChecked() && fetch->isEnabled()) runExtraction(); });
