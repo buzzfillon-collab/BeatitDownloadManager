@@ -343,7 +343,11 @@ void DownloadManager::startNextQueued() {
         connect(thread, &QThread::started, downloader, [downloader, d, this] {
             downloader->setSegments(d.connectionCount > 0 ? qBound(1, d.connectionCount, 8) : httpConnections_);
             downloader->setExpectedSha256(d.sha256);
-            downloader->setProxy(proxyHost_, proxyPort_, proxyType_);
+            const bool hasDownloadProxy = d.proxyType >= 0;
+            downloader->setProxy(hasDownloadProxy ? d.proxyHost : proxyHost_,
+                                 hasDownloadProxy ? d.proxyPort : proxyPort_,
+                                 hasDownloadProxy ? d.proxyType : proxyType_);
+            downloader->setUserAgent(d.userAgent);
             downloader->start(d.source, d.destination);
         });
 
