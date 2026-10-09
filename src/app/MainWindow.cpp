@@ -69,12 +69,14 @@ QString categoryForUrl(const QString &url) {
         {QStringLiteral("Documents"), QStringLiteral("pdf,doc,docx,xls,xlsx,ppt,pptx,txt,rtf,odt,ods,csv")},
         {QStringLiteral("Programs"), QStringLiteral("exe,msi,msix,appx,zip,7z,rar,iso,dmg,deb,rpm")}
     };
-    for (auto it = defaults.cbegin(); it != defaults.cend(); ++it) {
-        const QString rule = settings.value(QStringLiteral("categoryRules/%1").arg(it.key()), it.value()).toString();
+    const QStringList order{QStringLiteral("Video"), QStringLiteral("Music"),
+        QStringLiteral("Documents"), QStringLiteral("Programs")};
+    for (const QString &name : order) {
+        const QString rule = settings.value(QStringLiteral("categoryRules/%1").arg(name), defaults.value(name)).toString();
         for (QString token : rule.split(',', Qt::SkipEmptyParts)) {
             token = token.trimmed().toLower();
             if (token.startsWith('.')) token.remove(0, 1);
-            if (!token.isEmpty() && token == ext) return it.key();
+            if (!token.isEmpty() && token == ext) return name;
         }
     }
     return QStringLiteral("Other");
