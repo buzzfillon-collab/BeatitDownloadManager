@@ -105,6 +105,23 @@ QString categoryDestination(const QString &category) {
     return settings.value(QStringLiteral("categories/%1").arg(category), QDir(root).filePath(category)).toString();
 }
 
+QString lightThemeOverrides() {
+    return QStringLiteral(R"(
+        QMainWindow{background:#f4f6fa;color:#172033;}
+        QFrame#toolbar{background:#ffffff;border-bottom:1px solid #dce1eb;}
+        QLabel#toolbarBrand,QLabel#title{color:#172033;}
+        QLabel#subtitle,QLabel#sideTitle,QLabel#sideHint{color:#697386;}
+        QFrame#sidebar{background:#ffffff;border:1px solid #dce1eb;}
+        QPushButton{background:#ffffff;border:1px solid #d2d9e5;color:#263247;}
+        QPushButton:hover{background:#eef1f7;border-color:#b8c2d3;}
+        QLineEdit{background:#ffffff;border:1px solid #cbd3e0;color:#172033;}
+        QTableWidget{background:#ffffff;border:1px solid #dce1eb;color:#172033;}
+        QTableWidget::item{border-bottom:1px solid #e7eaf0;}
+        QTableWidget::item:selected{background:#e4ddff;color:#24184f;}
+        QHeaderView::section{background:#edf0f6;border-bottom:1px solid #dce1eb;color:#5e687b;}
+        QProgressBar{background:#e4e8f0;color:#263247;}
+    )");
+}
 void tintRow(QTableWidget *table, int row, const QColor &tone) {
     for (int col = 0; col < table->columnCount(); ++col)
         if (auto *item = table->item(row, col)) item->setBackground(tone);
@@ -175,9 +192,9 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
     urlEdit_->setPlaceholderText("Paste URL or magnet link…");urlEdit_->setClearButtonEnabled(true);
     urlEdit_->setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Preferred);
     toolbarLayout->addWidget(urlEdit_,1);toolbarLayout->addWidget(addButton_);
-    auto *fileButton=new QPushButton(QStringLiteral("＋ Torrent"),toolbar);toolbarLayout->addWidget(fileButton);
-    auto *grabButton=new QPushButton(QStringLiteral("Grab links"),toolbar);toolbarLayout->addWidget(grabButton);
-    auto *queuesButton=new QPushButton(QStringLiteral("Queues"),toolbar);
+    auto *fileButton=new QPushButton(QStringLiteral("＋ Torrent"),toolbar);fileButton->setObjectName("toolbarTorrentButton");toolbarLayout->addWidget(fileButton);
+    auto *grabButton=new QPushButton(QStringLiteral("Grab links"),toolbar);grabButton->setObjectName("toolbarGrabLinksButton");toolbarLayout->addWidget(grabButton);
+    auto *queuesButton=new QPushButton(QStringLiteral("Queues"),toolbar);queuesButton->setObjectName("toolbarQueuesButton");
     toolbarLayout->addWidget(queuesButton);
     auto *settingsButton=new QPushButton(QStringLiteral("⚙"),toolbar);
     settingsButton->setToolTip(QStringLiteral("Settings"));
@@ -249,6 +266,17 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         QProgressBar{background:#202632;border:0;border-radius:5px;text-align:center;color:#dce3ef;min-width:130px;max-width:190px;min-height:10px;max-height:10px;font-size:9px;}
         QProgressBar::chunk{background:#67a9ff;border-radius:5px;}
     )");
+    {
+        QSettings appearance(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+        if (appearance.value(QStringLiteral("appearance/theme"), QStringLiteral("dark")).toString() == QStringLiteral("light"))
+            setStyleSheet(styleSheet() + lightThemeOverrides());
+        const QStringList columns = appearance.value(QStringLiteral("appearance/columns")).toStringList();
+        if (columns.size() == downloadsTable_->columnCount())
+            for (int col=0; col<columns.size(); ++col) downloadsTable_->setColumnHidden(col, columns.at(col) != QStringLiteral("1"));
+        if (auto *b=findChild<QPushButton*>(QStringLiteral("toolbarTorrentButton"))) b->setVisible(appearance.value(QStringLiteral("appearance/toolbarTorrent"),true).toBool());
+        if (auto *b=findChild<QPushButton*>(QStringLiteral("toolbarGrabLinksButton"))) b->setVisible(appearance.value(QStringLiteral("appearance/toolbarGrabLinks"),true).toBool());
+        if (auto *b=findChild<QPushButton*>(QStringLiteral("toolbarQueuesButton"))) b->setVisible(appearance.value(QStringLiteral("appearance/toolbarQueues"),true).toBool());
+    }
 
     addButton_->setObjectName("primary");setupTray();
     connect(allButton, &QPushButton::clicked, this, [this] { filterDownloads(QStringLiteral("all")); });
@@ -1687,6 +1715,27 @@ void MainWindow::showSettings(){
     g->addRow(QString(), note);
     tabs->addTab(general, QStringLiteral("General"));
 
+    auto *appearancePage = new QWidget(&dialog);
+    auto *appearanceForm = new QFormLayout(appearancePage);
+    auto *theme = new QComboBox(appearancePage);
+    theme->addItems({QStringLiteral("Dark"),QStringLiteral("Light")});
+    theme->setCurrentIndex(settings.value(QStringLiteral("appearance/theme"),QStringLiteral("dark")).toString()==QStringLiteral("light")?1:0);
+    appearanceForm->addRow(QStringLiteral("Theme"),theme);
+    const QStringList columnNames{QStringLiteral("FILE"),QStringLiteral("STATUS"),QStringLiteral("PROGRESS"),QStringLiteral("SPEED"),QStringLiteral("SOURCE"),QStringLiteral("LAST ACTIVITY")};
+    const QStringList savedColumns=settings.value(QStringLiteral("appearance/columns"),QStringList{QStringLiteral("1"),QStringLiteral("1"),QStringLiteral("1"),QStringLiteral("1"),QStringLiteral("1"),QStringLiteral("1")}).toStringList();
+    QHash<int,QCheckBox*> columnChecks;
+    for(int col=0;col<columnNames.size();++col){auto *check=new QCheckBox(columnNames.at(col),appearancePage);check->setChecked(col>=savedColumns.size()||savedColumns.at(col)==QStringLiteral("1"));columnChecks.insert(col,check);appearanceForm->addRow(QStringLiteral("Show column"),check);}
+    auto *showTorrentButton=new QCheckBox(QStringLiteral("Show Torrent button"),appearancePage);
+    auto *showGrabButton=new QCheckBox(QStringLiteral("Show Grab links button"),appearancePage);
+    auto *showQueuesButton=new QCheckBox(QStringLiteral("Show Queues button"),appearancePage);
+    showTorrentButton->setChecked(settings.value(QStringLiteral("appearance/toolbarTorrent"),true).toBool());
+    showGrabButton->setChecked(settings.value(QStringLiteral("appearance/toolbarGrabLinks"),true).toBool());
+    showQueuesButton->setChecked(settings.value(QStringLiteral("appearance/toolbarQueues"),true).toBool());
+    appearanceForm->addRow(QStringLiteral("Toolbar"),showTorrentButton);
+    appearanceForm->addRow(QString(),showGrabButton);
+    appearanceForm->addRow(QString(),showQueuesButton);
+    tabs->addTab(appearancePage,QStringLiteral("Appearance"));
+
     auto *schedulePage = new QWidget(&dialog);
     auto *sl = new QVBoxLayout(schedulePage);
     auto *enabled = new QCheckBox(QStringLiteral("Enable weekly download scheduler"), schedulePage);
@@ -1768,6 +1817,19 @@ void MainWindow::showSettings(){
     downloadManager_->setBandwidthLimit(limit);
     settings.setValue(QStringLiteral("proxy/type"), proxyType->currentIndex());
     settings.setValue(QStringLiteral("completion/action"), completion->currentIndex());
+    settings.setValue(QStringLiteral("appearance/theme"),theme->currentIndex()==1?QStringLiteral("light"):QStringLiteral("dark"));
+    QStringList columnValues;
+    for(int col=0;col<6;++col) columnValues.append(columnChecks.value(col)->isChecked()?QStringLiteral("1"):QStringLiteral("0"));
+    settings.setValue(QStringLiteral("appearance/columns"),columnValues);
+    settings.setValue(QStringLiteral("appearance/toolbarTorrent"),showTorrentButton->isChecked());
+    settings.setValue(QStringLiteral("appearance/toolbarGrabLinks"),showGrabButton->isChecked());
+    settings.setValue(QStringLiteral("appearance/toolbarQueues"),showQueuesButton->isChecked());
+    for(int col=0;col<6;++col) downloadsTable_->setColumnHidden(col,!columnChecks.value(col)->isChecked());
+    setStyleSheet(styleSheet().remove(lightThemeOverrides()));
+    if(theme->currentIndex()==1) setStyleSheet(styleSheet()+lightThemeOverrides());
+    if(auto *b=findChild<QPushButton*>(QStringLiteral("toolbarTorrentButton"))) b->setVisible(showTorrentButton->isChecked());
+    if(auto *b=findChild<QPushButton*>(QStringLiteral("toolbarGrabLinksButton"))) b->setVisible(showGrabButton->isChecked());
+    if(auto *b=findChild<QPushButton*>(QStringLiteral("toolbarQueuesButton"))) b->setVisible(showQueuesButton->isChecked());
     settings.setValue(QStringLiteral("clipboard/monitor"), clipboardMonitor->isChecked());
     settings.setValue(QStringLiteral("power/shutdownOnComplete"), shutdownOnComplete->isChecked());
     settings.setValue(QStringLiteral("antivirus/program"), antivirusPath->text().trimmed());
