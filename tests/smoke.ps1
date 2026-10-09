@@ -35,6 +35,17 @@ if ($mainWindow -notmatch "categories/|categoryRules/|After download completes|c
     throw "Category routing or completion-action implementation missing."
 }
 if ($mainWindow -notmatch "showSelectedProperties|showLinkExtractor|Grab links") { throw "Properties dialog or link extractor UI missing." }
+$downloadManager = Get-Content (Join-Path $RepoRoot "src/core/DownloadManager.cpp") -Raw
+if ($downloadManager -notmatch "downloadInfo|updateProperties" -or $downloadManager -notmatch "updated.proxyType|updated.userAgent") {
+    throw "Editable download properties persistence is missing."
+}
+$httpDownloader = Get-Content (Join-Path $RepoRoot "src/core/HttpDownloader.cpp") -Raw
+if ($httpDownloader -notmatch "setUserAgent|CURLOPT_USERAGENT") {
+    throw "Configurable HTTP User-Agent implementation missing."
+}
+if ($mainWindow -notmatch "href\\s\*=|same-host HTML pages|Download All") {
+    throw "Link extraction or bounded Site Grabber implementation missing."
+}
 if ($mainWindow -match 'ftp://') {
     throw "FTP URL intake must remain out of scope."
 }
