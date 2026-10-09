@@ -95,7 +95,7 @@ bool DownloadManager::setQueuePaused(const QString&id,bool paused) {
     if(!database_.saveQueue(queues_.value(id)))return false;
     // Stopping a queue prevents new tasks from starting; already-running tasks finish normally.
     // Do not resume manually paused tasks when the queue is started again.
-    if (!paused) startNextQueued();
+    startNextQueued();
     return true;
 }
 bool DownloadManager::moveToQueue(const QString&downloadId,const QString&queueId) {
