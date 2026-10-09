@@ -49,7 +49,7 @@ if ($mainWindow -notmatch "href\\s\*=|same-host HTML pages|Download All") {
 foreach ($feature in @("categories/hostRules","categories/customNames","clipboard/monitor","antivirus/program","power/shutdownOnComplete",
                        "maxDepth","includePattern","excludePattern","Save Site Grabber project","runScheduledSiteGrabber",
                        "previewRemoteZip","checkForUpdates","QCryptographicHash::hash(installer","showSyncManager","runSyncChecks",
-                       "lightThemeOverrides","appearance/columns","toolbarGrabLinksButton")) {
+                       "lightThemeOverrides","appearance/columns","toolbarGrabLinksButton","void MainWindow::dropEvent","class DownloadTable","setDragEnabled(true)")) {
     if (-not $mainWindow.Contains($feature)) { throw "Missing P1/P2 feature implementation marker: $feature" }
 }
 $installerScript = Get-Content (Join-Path $RepoRoot "installer/Beatit.iss") -Raw
