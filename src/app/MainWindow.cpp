@@ -49,7 +49,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QTimer>
+#include <QTimer>\n#include <QSet>
 
 namespace {
 QString formatBytes(qint64 b){if(b<1024)return QStringLiteral("%1 B").arg(b);double v=b;const QStringList u{"KB","MB","GB","TB"};int i=-1;do{v/=1024.0;++i;}while(v>=1024.0&&i+1<u.size());return QStringLiteral("%1 %2").arg(v,0,'f',v>=100?0:1).arg(u[i]);}
@@ -316,7 +316,7 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         accentRow(downloadsTable_, row, false);
     });
     connect(downloadManager_,&DownloadManager::taskPaused,this,[this](const QString&id,qint64 done){setStatus(id,"Paused");statusLabel_->setText(QStringLiteral("Paused at %1").arg(formatBytes(done)));});
-    connect(downloadManager_,&DownloadManager::taskCompleted,this,[this](const QString&id,const QString&path){paths_[id]=path;setStatus(id,"Completed"); if(const int row=rowForId(id);row>=0){auto *date=downloadsTable_->item(row,5);if(date){const auto ts=QDateTime::currentSecsSinceEpoch();date->setText(QDateTime::fromSecsSinceEpoch(ts).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));date->setData(Qt::UserRole,ts);}}trayIcon_->showMessage("Beatit","Download complete");});
+    connect(downloadManager_,&DownloadManager::taskCompleted,this,[this](const QString&id,const QString&path){paths_[id]=path;setStatus(id,"Completed"); if(const int row=rowForId(id);row>=0){auto *date=downloadsTable_->item(row,5);if(date){const auto ts=QDateTime::currentSecsSinceEpoch();date->setText(QDateTime::fromSecsSinceEpoch(ts).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));date->setData(Qt::UserRole,ts);}} trayIcon_->showMessage("Beatit","Download complete"); QSettings settings(QStringLiteral("Beatit"),QStringLiteral("Beatit")); const int action=settings.value(QStringLiteral("completion/action"),0).toInt(); if(action==1) QDesktopServices::openUrl(QUrl::fromLocalFile(path)); else if(action==2) QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));});
     connect(downloadManager_,&DownloadManager::taskFailed,this,[this](const QString&id,const QString&e){setStatus(id,"Failed");trayIcon_->showMessage("Beatit",e,QSystemTrayIcon::Warning);});
     connect(downloadManager_,&DownloadManager::taskCancelled,this,[this](const QString&id){setStatus(id,"Cancelled");});
     connect(downloadManager_,&DownloadManager::taskRemoved,this,[this](const QString&id){ const int row=rowForId(id); if(row<0)return; downloadsTable_->removeRow(row); statusLabel_->setText("Removed"); });
@@ -826,10 +826,29 @@ void MainWindow::handleExternalCommand(const QStringList &arguments) {
 
 void MainWindow::addDownload(){
     const QString url=urlEdit_->text().trimmed();
-    if(url.startsWith("magnet:?")){torrentEngine_->addMagnet(url,QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));urlEdit_->clear();statusLabel_->setText("Adding torrent…");return;}
+    const QString root = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    if(url.startsWith("magnet:?")){torrentEngine_->addMagnet(url,root);urlEdit_->clear();statusLabel_->setText("Adding torrent…");return;}
     const QUrl parsed(url);
-    if(!parsed.isValid()||(parsed.scheme()!="http"&&parsed.scheme()!="https"&&parsed.scheme()!="ftp")){statusLabel_->setText("Invalid URL");return;}
-    downloadManager_->addUrl(url,QStandardPaths::writableLocation(QStandardPaths::DownloadLocation));urlEdit_->clear();statusLabel_->setText("Queued…");
+    if(!parsed.isValid()||(parsed.scheme()!="http"&&parsed.scheme()!="https")){statusLabel_->setText("Only HTTP/HTTPS URLs and magnet links are supported");return;}
+
+    // IDM-style automatic categories: route common file types into predictable subfolders.
+    const QString name = QFileInfo(parsed.path()).fileName().toLower();
+    const QString ext = QFileInfo(name).suffix();
+    QString category = QStringLiteral("Other");
+    static const QSet<QString> video{ "mp4","mkv","webm","avi","mov","m4v","mpeg","mpg","ts","m3u8" };
+    static const QSet<QString> audio{ "mp3","m4a","aac","flac","wav","ogg","opus","wma" };
+    static const QSet<QString> documents{ "pdf","doc","docx","xls","xlsx","ppt","pptx","txt","rtf","odt","ods","csv" };
+    static const QSet<QString> programs{ "exe","msi","msix","appx","zip","7z","rar","iso","dmg","deb","rpm" };
+    if(video.contains(ext)) category = QStringLiteral("Video");
+    else if(audio.contains(ext)) category = QStringLiteral("Music");
+    else if(documents.contains(ext)) category = QStringLiteral("Documents");
+    else if(programs.contains(ext)) category = QStringLiteral("Programs");
+    QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    const QString destination = settings.value(QStringLiteral("categories/%1").arg(category),
+        QDir(root).filePath(category)).toString();
+    QDir().mkpath(destination);
+    downloadManager_->addUrl(url,destination);
+    urlEdit_->clear();statusLabel_->setText(QStringLiteral("Queued — %1").arg(category));
 }
 void MainWindow::pauseSelected(){const QString id=selectedId();if(id.startsWith("torrent-"))torrentEngine_->pause(id);else if(!id.isEmpty())downloadManager_->pause(id);}
 void MainWindow::resumeSelected(){
@@ -981,7 +1000,11 @@ void MainWindow::showSettings(){
     g->addRow(QStringLiteral("Proxy / SOCKS"), proxyType);
     g->addRow(QStringLiteral("Proxy host"), proxyHost);
     g->addRow(QStringLiteral("Proxy port"), proxyPort);
-    auto *note = new QLabel(QStringLiteral("The bandwidth limit applies to HTTP and BitTorrent downloads."), general);
+    auto *completion = new QComboBox(general);
+    completion->addItems({QStringLiteral("Do nothing"), QStringLiteral("Open downloaded file"), QStringLiteral("Open containing folder")});
+    completion->setCurrentIndex(qBound(0, settings.value(QStringLiteral("completion/action"), 0).toInt(), 2));
+    g->addRow(QStringLiteral("After download completes"), completion);
+    auto *note = new QLabel(QStringLiteral("The bandwidth limit applies to HTTP and BitTorrent downloads. Category folders are created automatically; each category's destination can be customized in settings."), general);
     note->setWordWrap(true);
     g->addRow(QString(), note);
     tabs->addTab(general, QStringLiteral("General"));
@@ -1066,6 +1089,7 @@ void MainWindow::showSettings(){
     settings.setValue(QStringLiteral("bandwidth/limit"), limit);
     downloadManager_->setBandwidthLimit(limit);
     settings.setValue(QStringLiteral("proxy/type"), proxyType->currentIndex());
+    settings.setValue(QStringLiteral("completion/action"), completion->currentIndex());
     settings.setValue(QStringLiteral("proxy/host"), proxyHost->text().trimmed());
     settings.setValue(QStringLiteral("proxy/port"), proxyPort->value());
     downloadManager_->setProxy(proxyHost->text().trimmed(), proxyPort->value(), proxyType->currentIndex());
