@@ -155,10 +155,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 });
-chrome.action.onClicked.addListener(async tab => {
-  if (!tab?.url || !isHttp(tab.url)) return;
-  await capture(tab.url, { title: tab.title || "", pageUrl: tab.url, kind: classify(tab.url) });
-});
+const actionApi = chrome.action || chrome.browserAction;
+if (actionApi?.onClicked) {
+  actionApi.onClicked.addListener(async tab => {
+    if (!tab?.url || !isHttp(tab.url)) return;
+    await capture(tab.url, { title: tab.title || "", pageUrl: tab.url, kind: classify(tab.url) });
+  });
+}
 chrome.webRequest.onBeforeRequest.addListener(details => {
   void detectRequest(details);
 }, { urls: ["<all_urls>"], types: ["media", "xmlhttprequest", "other"] });
