@@ -43,7 +43,7 @@ $httpDownloader = Get-Content (Join-Path $RepoRoot "src/core/HttpDownloader.cpp"
 if ($httpDownloader -notmatch "setUserAgent|CURLOPT_USERAGENT") {
     throw "Configurable HTTP User-Agent implementation missing."
 }
-if ($mainWindow -notmatch "href\s*=|same-host HTML pages|Download All") {
+if ($mainWindow -notmatch "href\\s\*=|same-host HTML pages|Download All") {
     throw "Link extraction or bounded Site Grabber implementation missing."
 }
 if ($mainWindow -match 'ftp://') {
