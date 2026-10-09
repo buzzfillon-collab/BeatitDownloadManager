@@ -69,8 +69,8 @@ if ($manifest.manifest_version -ne 3) { throw "Browser extension is not MV3." }
 if (-not ($manifest.permissions -contains "nativeMessaging")) { throw "nativeMessaging permission missing." }
 if (-not $manifest.key) { throw "Stable Chromium extension key missing." }
 
-& (Join-Path $root "BeatitDownloadManager.exe") --version
-if ($LASTEXITCODE -ne 0) { throw "Beatit --version failed." }
+$versionOutput = & (Join-Path $root "BeatitDownloadManager.exe") --version 2>&1 | Out-String
+if ($versionOutput -notmatch "Beatit Download Manager") { throw "Beatit --version did not return the expected version string." }
 
 $files = Get-ChildItem $root -File -Recurse
 if (-not $files) { throw "No release files found." }
