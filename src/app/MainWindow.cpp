@@ -7,6 +7,8 @@
 #include "../core/Scheduler.h"
 #include <QAbstractItemView>
 #include <QCloseEvent>
+#include <QClipboard>
+#include <QApplication>
 #include <QDesktopServices>
 #include <QCheckBox>
 #include <QComboBox>
@@ -61,16 +63,30 @@ namespace {
 QString formatBytes(qint64 b){if(b<1024)return QStringLiteral("%1 B").arg(b);double v=b;const QStringList u{"KB","MB","GB","TB"};int i=-1;do{v/=1024.0;++i;}while(v>=1024.0&&i+1<u.size());return QStringLiteral("%1 %2").arg(v,0,'f',v>=100?0:1).arg(u[i]);}
 QString formatSpeed(qint64 b){return b<=0?QStringLiteral("—"):formatBytes(b)+QStringLiteral("/s");}
 QString categoryForUrl(const QString &url) {
-    const QString ext = QFileInfo(QUrl(url).path()).suffix().toLower();
+    const QUrl parsed(url);
+    const QString host = parsed.host().toLower();
+    const QString ext = QFileInfo(parsed.path()).suffix().toLower();
     QSettings settings(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+    const QStringList custom = settings.value(QStringLiteral("categories/customNames")).toStringList();
+    const QStringList allHosts = settings.value(QStringLiteral("categories/hostRules")).toStringList();
+    for (const QString &entry : allHosts) {
+        const int separator = entry.indexOf('=');
+        if (separator <= 0) continue;
+        const QString ruleHost = entry.left(separator).trimmed().toLower();
+        const QString category = entry.mid(separator + 1).trimmed();
+        if (!ruleHost.isEmpty() && !category.isEmpty() &&
+            (host == ruleHost || host.endsWith(QStringLiteral(".") + ruleHost)) &&
+            (custom.contains(category) || QStringList{QStringLiteral("Video"),QStringLiteral("Music"),QStringLiteral("Documents"),QStringLiteral("Programs"),QStringLiteral("Other")}.contains(category)))
+            return category;
+    }
     const QHash<QString, QString> defaults{
         {QStringLiteral("Video"), QStringLiteral("mp4,mkv,webm,avi,mov,m4v,mpeg,mpg,ts,m3u8")},
         {QStringLiteral("Music"), QStringLiteral("mp3,m4a,aac,flac,wav,ogg,opus,wma")},
         {QStringLiteral("Documents"), QStringLiteral("pdf,doc,docx,xls,xlsx,ppt,pptx,txt,rtf,odt,ods,csv")},
         {QStringLiteral("Programs"), QStringLiteral("exe,msi,msix,appx,zip,7z,rar,iso,dmg,deb,rpm")}
     };
-    const QStringList order{QStringLiteral("Video"), QStringLiteral("Music"),
-        QStringLiteral("Documents"), QStringLiteral("Programs")};
+    QStringList order{QStringLiteral("Video"), QStringLiteral("Music"), QStringLiteral("Documents"), QStringLiteral("Programs")};
+    for (const QString &name : custom) if (!order.contains(name) && name != QStringLiteral("Other")) order.append(name);
     for (const QString &name : order) {
         const QString rule = settings.value(QStringLiteral("categoryRules/%1").arg(name), defaults.value(name)).toString();
         for (QString token : rule.split(',', Qt::SkipEmptyParts)) {
@@ -310,6 +326,69 @@ browserBridge_(new BrowserBridge(this)),ytDlpManager_(new YtDlpManager(this)),tr
         menu.exec(downloadsTable_->viewport()->mapToGlobal(pos));
     });
     connect(settingsButton,&QPushButton::clicked,this,&MainWindow::showSettings);
+    connect(QApplication::clipboard(), &QClipboard::dataChanged, this, [this] {
+        QSettings cfg(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+        if (!cfg.value(QStringLiteral("clipboard/monitor"), false).toBool()) return;
+        const QString text = QApplication::clipboard()->text().trimmed();
+        static QString lastPrompted;
+        if (text.isEmpty() || text == lastPrompted || text.size() > 8192) return;
+        const QUrl url(text);
+        if (!url.isValid() || (url.scheme() != QStringLiteral("http") && url.scheme() != QStringLiteral("https")) || url.host().isEmpty()) return;
+        lastPrompted = text;
+        if (QMessageBox::question(this, QStringLiteral("Add copied URL?"),
+                QStringLiteral("Add this URL to Beatit downloads?\n\n%1").arg(text.left(500)),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes) {
+            urlEdit_->setText(text);
+            addDownload();
+            showFromTray();
+        }
+    });
+    connect(downloadManager_, &DownloadManager::taskCompleted, this, [this](const QString &, const QString &path) {
+        QSettings cfg(QStringLiteral("Beatit"), QStringLiteral("Beatit"));
+        const QString scanner = cfg.value(QStringLiteral("antivirus/program")).toString().trimmed();
+        if (!scanner.isEmpty() && QFileInfo(scanner).isFile() && QFileInfo(path).isFile()) {
+            QStringList args = QProcess::splitCommand(cfg.value(QStringLiteral("antivirus/arguments"), QStringLiteral("\"{file}\"")).toString());
+            bool hasFile = false;
+            for (QString &arg : args) {
+                if (arg.contains(QStringLiteral("{file}"))) { arg.replace(QStringLiteral("{file}"), path); hasFile = true; }
+                if (arg.contains(QStringLiteral("{filename}"))) arg.replace(QStringLiteral("{filename}"), QFileInfo(path).fileName());
+            }
+            if (!hasFile) args.append(path);
+            auto *process = new QProcess(this);
+            connect(process, qOverload<int,QProcess::ExitStatus>(&QProcess::finished), this,
+                [this,process](int code,QProcess::ExitStatus state) {
+                    statusLabel_->setText(state == QProcess::NormalExit && code == 0
+                        ? QStringLiteral("Antivirus scan process completed successfully")
+                        : QStringLiteral("Antivirus scan returned an error; inspect the scanner"));
+                    process->deleteLater();
+                });
+            connect(process, &QProcess::errorOccurred, this, [this,process](QProcess::ProcessError) {
+                statusLabel_->setText(QStringLiteral("Could not start antivirus scanner"));
+                process->deleteLater();
+            });
+            process->start(scanner, args);
+        }
+        if (cfg.value(QStringLiteral("power/shutdownOnComplete"), false).toBool()) {
+            QTimer::singleShot(2500, this, [this] {
+                bool any = false, allFinished = true;
+                for (int row = 0; row < downloadsTable_->rowCount(); ++row) {
+                    const QString state = downloadsTable_->item(row,1) ? downloadsTable_->item(row,1)->text().toLower() : QString();
+                    if (state.isEmpty()) continue;
+                    any = true;
+                    const bool terminal = state.contains(QStringLiteral("completed")) || state.contains(QStringLiteral("failed")) ||
+                        state.contains(QStringLiteral("cancelled")) || state.contains(QStringLiteral("seeding")) ||
+                        state.contains(QStringLiteral("finished"));
+                    if (!terminal) { allFinished = false; break; }
+                }
+                if (any && allFinished && QMessageBox::question(this, QStringLiteral("Downloads finished"),
+                    QStringLiteral("All downloads have finished. Shut down Windows in 60 seconds?"),
+                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes) {
+                    QProcess::startDetached(QStringLiteral("shutdown.exe"), {QStringLiteral("/s"),QStringLiteral("/t"),QStringLiteral("60")});
+                    statusLabel_->setText(QStringLiteral("Shutdown scheduled; run shutdown.exe /a to cancel"));
+                }
+            });
+        }
+    });
     connect(fileButton,&QPushButton::clicked,this,[this]{
         const QString p=QFileDialog::getOpenFileName(this,"Open torrent",
             QStandardPaths::writableLocation(QStandardPaths::DownloadLocation),"Torrent files (*.torrent)");
@@ -1272,11 +1351,42 @@ void MainWindow::showSettings(){
     completion->addItems({QStringLiteral("Do nothing"), QStringLiteral("Open downloaded file"), QStringLiteral("Open containing folder")});
     completion->setCurrentIndex(qBound(0, settings.value(QStringLiteral("completion/action"), 0).toInt(), 2));
     g->addRow(QStringLiteral("After download completes"), completion);
+    auto *clipboardMonitor = new QCheckBox(QStringLiteral("Ask before adding copied HTTP/HTTPS URLs"), general);
+    clipboardMonitor->setChecked(settings.value(QStringLiteral("clipboard/monitor"), false).toBool());
+    g->addRow(QStringLiteral("Clipboard monitoring"), clipboardMonitor);
+    auto *shutdownOnComplete = new QCheckBox(QStringLiteral("Offer shutdown when all downloads finish"), general);
+    shutdownOnComplete->setChecked(settings.value(QStringLiteral("power/shutdownOnComplete"), false).toBool());
+    g->addRow(QStringLiteral("Queue completion"), shutdownOnComplete);
+    auto *antivirusPath = new QLineEdit(settings.value(QStringLiteral("antivirus/program")).toString(), general);
+    auto *antivirusArgs = new QLineEdit(settings.value(QStringLiteral("antivirus/arguments"), QStringLiteral("\"{file}\"")).toString(), general);
+    auto *avBrowse = new QPushButton(QStringLiteral("Browse…"), general);
+    auto *avRow = new QWidget(general);
+    auto *avLayout = new QHBoxLayout(avRow); avLayout->setContentsMargins(0,0,0,0);
+    avLayout->addWidget(antivirusPath,1); avLayout->addWidget(avBrowse);
+    connect(avBrowse, &QPushButton::clicked, &dialog, [antivirusPath, &dialog] {
+        const QString chosen = QFileDialog::getOpenFileName(&dialog, QStringLiteral("Choose antivirus executable"));
+        if (!chosen.isEmpty()) antivirusPath->setText(chosen);
+    });
+    g->addRow(QStringLiteral("Antivirus executable"), avRow);
+    antivirusArgs->setPlaceholderText(QStringLiteral("Arguments; use {file} for the completed file path"));
+    g->addRow(QStringLiteral("Antivirus arguments"), antivirusArgs);
+    auto *customCategoriesEdit = new QLineEdit(settings.value(QStringLiteral("categories/customNames")).toStringList().join(QStringLiteral(", ")), general);
+    customCategoriesEdit->setPlaceholderText(QStringLiteral("Comma-separated category names"));
+    g->addRow(QStringLiteral("Custom categories"), customCategoriesEdit);
+    auto *hostRulesEdit = new QLineEdit(settings.value(QStringLiteral("categories/hostRules")).toStringList().join(QStringLiteral("; ")), general);
+    hostRulesEdit->setPlaceholderText(QStringLiteral("host.example=Video; downloads.example=Programs"));
+    g->addRow(QStringLiteral("Host-specific routing"), hostRulesEdit);
 
     QHash<QString, QLineEdit*> categoryPaths;
     QHash<QString, QLineEdit*> categoryRules;
     const QString downloadRoot = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-    for (const QString &category : {QStringLiteral("Video"), QStringLiteral("Music"), QStringLiteral("Documents"), QStringLiteral("Programs"), QStringLiteral("Other")}) {
+    QStringList categoryNames{QStringLiteral("Video"), QStringLiteral("Music"), QStringLiteral("Documents"), QStringLiteral("Programs"), QStringLiteral("Other")};
+    for (QString name : settings.value(QStringLiteral("categories/customNames")).toStringList()) {
+        name = name.trimmed();
+        if (!name.isEmpty() && !categoryNames.contains(name) && name.compare(QStringLiteral("Other"), Qt::CaseInsensitive) != 0)
+            categoryNames.append(name);
+    }
+    for (const QString &category : categoryNames) {
         auto *pathEdit = new QLineEdit(settings.value(QStringLiteral("categories/%1").arg(category),
             QDir(downloadRoot).filePath(category)).toString(), general);
         auto *browse = new QPushButton(QStringLiteral("Browse…"), general);
@@ -1390,6 +1500,27 @@ void MainWindow::showSettings(){
     downloadManager_->setBandwidthLimit(limit);
     settings.setValue(QStringLiteral("proxy/type"), proxyType->currentIndex());
     settings.setValue(QStringLiteral("completion/action"), completion->currentIndex());
+    settings.setValue(QStringLiteral("clipboard/monitor"), clipboardMonitor->isChecked());
+    settings.setValue(QStringLiteral("power/shutdownOnComplete"), shutdownOnComplete->isChecked());
+    settings.setValue(QStringLiteral("antivirus/program"), antivirusPath->text().trimmed());
+    settings.setValue(QStringLiteral("antivirus/arguments"), antivirusArgs->text().trimmed());
+    QStringList customNames;
+    for (QString name : customCategoriesEdit->text().split(',', Qt::SkipEmptyParts)) {
+        name = name.trimmed();
+        if (!name.isEmpty() && name.size() <= 40 && !name.contains('/') && !name.contains('\\') &&
+            !QStringList{QStringLiteral("Video"),QStringLiteral("Music"),QStringLiteral("Documents"),QStringLiteral("Programs"),QStringLiteral("Other")}.contains(name, Qt::CaseInsensitive) &&
+            !customNames.contains(name, Qt::CaseInsensitive)) customNames.append(name);
+    }
+    settings.setValue(QStringLiteral("categories/customNames"), customNames);
+    QStringList hostRules;
+    for (QString rule : hostRulesEdit->text().split(';', Qt::SkipEmptyParts)) {
+        rule = rule.trimmed();
+        const int separator = rule.indexOf('=');
+        if (separator > 0 && !rule.left(separator).trimmed().contains('/') &&
+            QRegularExpression(QStringLiteral(R"re(^[a-zA-Z0-9.-]+$)re")).match(rule.left(separator).trimmed()).hasMatch() &&
+            !rule.mid(separator + 1).trimmed().isEmpty()) hostRules.append(rule);
+    }
+    settings.setValue(QStringLiteral("categories/hostRules"), hostRules);
     for (auto it = categoryRules.cbegin(); it != categoryRules.cend(); ++it)
         settings.setValue(QStringLiteral("categoryRules/%1").arg(it.key()), it.value()->text().trimmed().toLower());
     for (auto it = categoryPaths.cbegin(); it != categoryPaths.cend(); ++it) {
