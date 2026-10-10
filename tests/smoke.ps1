@@ -30,6 +30,9 @@ $checksum = Get-Content (Join-Path $RepoRoot "src/core/HttpDownloader.cpp") -Raw
 if ($checksum -notmatch "QCryptographicHash|verifySha256|MAX_RECV_SPEED_LARGE") {
     throw "HTTP integrity/rate-limit implementation sanity check failed."
 }
+if ($checksum -notmatch "splitRequested|muchSlower|Adaptive range integrity check failed|Adaptive range coverage check failed|schedulerDone") {
+    throw "Adaptive live HTTP range splitting or coverage validation is missing."
+}
 $mainWindow = Get-Content (Join-Path $RepoRoot "src/app/MainWindow.cpp") -Raw
 if ($mainWindow -notmatch "categories/|categoryRules/|After download completes|completion/action") {
     throw "Category routing or completion-action implementation missing."
