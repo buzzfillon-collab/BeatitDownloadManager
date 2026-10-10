@@ -8,6 +8,7 @@ Comparison target: Internet Download Manager (IDM), using IDM's official feature
 
 - [x] HTTP/HTTPS downloading
 - [x] Segmented HTTP downloading: up to 32 stable byte ranges, scheduled by 1–8 concurrent workers; each worker claims another pending range when it finishes
+- [x] Adaptive live range splitting: detect stalled/slow large active ranges, preserve received prefixes, and redistribute remaining bytes to available workers; bounded split count and exact coverage validation before assembly
 - [x] Pause/resume and restart recovery
 - [x] Retry/backoff
 - [x] Global concurrency and bandwidth limits
