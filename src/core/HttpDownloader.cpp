@@ -11,6 +11,10 @@
 #include <thread>
 #include <curl/curl.h>
 #include <mutex>
+#include <condition_variable>
+#include <deque>
+#include <memory>
+#include <algorithm>
 #include <vector>
 
 namespace {
@@ -91,6 +95,7 @@ struct SegmentResult {
     bool cancelled = false;
     bool retryable = true;
     bool rangeUnsupported = false;
+    bool splitRequested = false;
     qint64 bytes = 0;
     QString error;
 };
@@ -114,6 +119,9 @@ struct SegmentContext {
     std::atomic<qint64> *aggregate{};
     std::atomic<qint64> *lastReportBytes{};
     std::atomic<qint64> *lastReportMs{};
+    std::atomic_bool *splitRequested{};
+    std::atomic<qint64> *liveWritten{};
+    std::atomic<qint64> *lastProgressMs{};
 };
 size_t segmentWrite(char *ptr,size_t size,size_t nmemb,void *userdata) {
     auto *ctx=static_cast<SegmentContext*>(userdata);
@@ -121,6 +129,11 @@ size_t segmentWrite(char *ptr,size_t size,size_t nmemb,void *userdata) {
     const qint64 n=ctx->file->write(ptr,bytes);
     if(n<=0) return 0;
     ctx->written+=n;
+    if (ctx->liveWritten) ctx->liveWritten->store(ctx->written);
+    if (ctx->lastProgressMs) {
+        ctx->lastProgressMs->store(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
     if (ctx->aggregate) {
         const qint64 aggregateNow = ctx->aggregate->fetch_add(n) + n;
         const qint64 nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -136,17 +149,24 @@ size_t segmentWrite(char *ptr,size_t size,size_t nmemb,void *userdata) {
     return static_cast<size_t>(n);
 }
 int segmentProgress(void *clientp,curl_off_t,curl_off_t,curl_off_t,curl_off_t) {
-    return static_cast<SegmentContext*>(clientp)->owner->isCancelRequested()?1:0;
+    auto *ctx=static_cast<SegmentContext*>(clientp);
+    return (ctx->owner->isCancelRequested() ||
+            (ctx->splitRequested && ctx->splitRequested->load())) ? 1 : 0;
 }
 SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QString &path,qint64 first,qint64 last,
                            std::atomic<qint64> *aggregate, std::atomic<qint64> *lastReportBytes,
-                           std::atomic<qint64> *lastReportMs) {
+                           std::atomic<qint64> *lastReportMs, std::atomic_bool *splitRequested,
+                           std::atomic<qint64> *liveWritten, std::atomic<qint64> *lastProgressMs) {
     SegmentResult out;
     QFile file(path);
     if(!file.open(QIODevice::WriteOnly|QIODevice::Truncate)){out.error="Unable to create segment";return out;}
     CURL *curl=curl_easy_init();
     if(!curl){out.error="libcurl initialization failed";return out;}
-    SegmentContext ctx{owner,&file,last-first+1,0,first,aggregate,lastReportBytes,lastReportMs};
+    if (liveWritten) liveWritten->store(0);
+    if (lastProgressMs) lastProgressMs->store(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+    SegmentContext ctx{owner,&file,last-first+1,0,first,aggregate,lastReportBytes,lastReportMs,
+                       splitRequested,liveWritten,lastProgressMs};
     const QByteArray range=QStringLiteral("%1-%2").arg(first).arg(last).toUtf8();
     curl_easy_setopt(curl,CURLOPT_URL,url.toUtf8().constData());
     applyProxy(curl, owner);
@@ -174,6 +194,7 @@ SegmentResult fetchSegment(HttpDownloader *owner,const QString &url,const QStrin
     // report retained bytes rather than cumulative bytes ever received.
     out.bytes=ctx.written;
     if(owner->isCancelRequested()){out.cancelled=true;return out;}
+    if(splitRequested && splitRequested->load()) { out.splitRequested=true; return out; }
     if(code!=CURLE_OK){
         out.error=QString::fromUtf8(curl_easy_strerror(code));
         out.retryable = code != CURLE_URL_MALFORMAT && code != CURLE_UNSUPPORTED_PROTOCOL &&
@@ -293,74 +314,198 @@ void HttpDownloader::run(const QString &url,const QString &destination){
     if(total>0&&ranges&&existing==0&&(connections>1||hasSegmentState)) {
         emit started(QFileInfo(finalPath).fileName(),total, true);
 
-        QVector<int> pending;
-        qint64 done=0;
-        for(int i=0;i<bounds.size();++i) {
-            const qint64 expected=bounds[i].second-bounds[i].first+1;
-            const qint64 size=QFileInfo(segmentFiles[i]).exists()?QFileInfo(segmentFiles[i]).size():0;
-            if(size==expected) done+=expected;
-            else {
-                if(size>0) QFile::remove(segmentFiles[i]);
-                pending.push_back(i);
-            }
-        }
+        struct SegmentPiece { qint64 first; qint64 last; QString path; };
+        struct SegmentJob {
+            qint64 first{};
+            qint64 last{};
+            QString path;
+            std::atomic_bool splitRequested{false};
+            std::atomic<qint64> written{0};
+            std::atomic<qint64> startedMs{0};
+            std::atomic<qint64> lastProgressMs{0};
+        };
+        const auto nowMs=[] {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        };
 
-        std::atomic_int nextJob{0};
+        std::deque<std::shared_ptr<SegmentJob>> pendingJobs;
+        std::vector<SegmentPiece> completedPieces;
+        std::vector<QString> adaptiveFiles;
+        std::vector<std::shared_ptr<SegmentJob>> activeJobs;
+        std::mutex schedulerMutex;
+        std::condition_variable schedulerCv;
         std::atomic_bool workerFailed{false};
         std::atomic_bool rangeUnsupported{false};
-        std::atomic<qint64> aggregateDone{done};
-        std::atomic<qint64> lastReportBytes{done};
-        std::atomic<qint64> lastReportMs{
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count()};
+        std::atomic<qint64> aggregateDone{0};
+        std::atomic<qint64> lastReportBytes{0};
+        std::atomic<qint64> lastReportMs{nowMs()};
+        std::atomic<quint64> adaptiveId{0};
         std::mutex resultMutex;
         QString error;
+        bool schedulerDone=false;
 
-        const int workerCount=qMin(connections,pending.size());
+        for(int i=0;i<bounds.size();++i) {
+            const qint64 first=bounds[i].first;
+            const qint64 last=bounds[i].second;
+            const qint64 expected=last-first+1;
+            const QString path=segmentFiles[i];
+            const qint64 size=QFileInfo::exists(path)?QFileInfo(path).size():0;
+            if(size==expected) {
+                completedPieces.push_back({first,last,path});
+                aggregateDone.fetch_add(expected);
+            } else {
+                if(size>0) QFile::remove(path);
+                auto job=std::make_shared<SegmentJob>();
+                job->first=first; job->last=last; job->path=path;
+                pendingJobs.push_back(job);
+            }
+        }
+        lastReportBytes.store(aggregateDone.load());
+
+        const auto makeAdaptivePath=[&](qint64 first,qint64 last) {
+            const quint64 id=adaptiveId.fetch_add(1);
+            const QString path=partPath+QStringLiteral(".adaptive.%1.%2.%3")
+                .arg(first).arg(last).arg(id);
+            QFile::remove(path);
+            adaptiveFiles.push_back(path);
+            return path;
+        };
+        const auto makeJob=[&](qint64 first,qint64 last,const QString &path) {
+            auto job=std::make_shared<SegmentJob>();
+            job->first=first; job->last=last; job->path=path;
+            return job;
+        };
+
+        const int workerCount=qMin(connections,static_cast<int>(pendingJobs.size()));
         std::vector<std::future<void>> workers;
         workers.reserve(workerCount);
         for(int worker=0;worker<workerCount;++worker) {
             workers.push_back(std::async(std::launch::async,[&,worker] {
                 Q_UNUSED(worker);
-                while(!workerFailed.load()&&!isCancelRequested()) {
-                    const int slot=nextJob.fetch_add(1);
-                    if(slot>=pending.size()) break;
-                    const int index=pending[slot];
-                    const auto [first,last]=bounds[index];
+                for(;;) {
+                    std::shared_ptr<SegmentJob> job;
+                    {
+                        std::unique_lock<std::mutex> lock(schedulerMutex);
+                        schedulerCv.wait(lock,[&] {
+                            return isCancelRequested() || workerFailed.load() ||
+                                   !pendingJobs.empty() || activeJobs.empty();
+                        });
+                        if(isCancelRequested() || workerFailed.load()) break;
+                        if(pendingJobs.empty()) {
+                            if(activeJobs.empty()) {
+                                schedulerDone=true;
+                                schedulerCv.notify_all();
+                                break;
+                            }
+                            continue;
+                        }
+                        job=pendingJobs.front();
+                        pendingJobs.pop_front();
+                        job->startedMs.store(nowMs());
+                        job->lastProgressMs.store(job->startedMs.load());
+                        activeJobs.push_back(job);
+                    }
+
                     SegmentResult result;
-                    // Retry transient network/server failures with bounded exponential
-                    // backoff (0.5, 1, 2, 4, 8 seconds). Permanent HTTP errors and
-                    // servers that ignore Range fail immediately instead of wasting time.
-                    for(int attempt=0;attempt<5&&!isCancelRequested();++attempt) {
-                        result=fetchSegment(this,url,segmentFiles[index],first,last,
-                                            &aggregateDone,&lastReportBytes,&lastReportMs);
-                        if(result.ok) break;
+                    for(int attempt=0;attempt<5&&!isCancelRequested()&&!workerFailed.load();++attempt) {
+                        job->splitRequested.store(false);
+                        result=fetchSegment(this,url,job->path,job->first,job->last,
+                                            &aggregateDone,&lastReportBytes,&lastReportMs,
+                                            &job->splitRequested,&job->written,&job->lastProgressMs);
+                        if(result.ok || result.splitRequested) break;
                         if(result.bytes > 0) {
-                            const qint64 retained = aggregateDone.fetch_sub(result.bytes) - result.bytes;
+                            const qint64 retained=aggregateDone.fetch_sub(result.bytes)-result.bytes;
                             lastReportBytes.store(retained);
-                            lastReportMs.store(std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::steady_clock::now().time_since_epoch()).count());
+                            lastReportMs.store(nowMs());
                         }
                         if(result.cancelled||!result.retryable) break;
-                        if(attempt<4) interruptibleBackoff(500 * (1 << attempt), this);
+                        if(attempt<4) interruptibleBackoff(500*(1<<attempt),this);
                     }
-                    if(result.cancelled) break;
-                    if(!result.ok) {
-                        {
-                            std::lock_guard<std::mutex> lock(resultMutex);
-                            if(error.isEmpty()) error=result.error;
+
+                    {
+                        std::lock_guard<std::mutex> lock(schedulerMutex);
+                        auto it=std::find(activeJobs.begin(),activeJobs.end(),job);
+                        if(it!=activeJobs.end()) activeJobs.erase(it);
+
+                        if(result.splitRequested && !isCancelRequested() && !workerFailed.load()) {
+                            const qint64 received=qBound<qint64>(0,job->written.load(),job->last-job->first+1);
+                            if(received>0) {
+                                completedPieces.push_back({job->first,job->first+received-1,job->path});
+                            } else {
+                                QFile::remove(job->path);
+                            }
+                            const qint64 tailFirst=job->first+received;
+                            if(tailFirst<=job->last) {
+                                if(received==0) {
+                                    const qint64 mid=job->first+(job->last-job->first)/2;
+                                    pendingJobs.push_back(makeJob(job->first,mid,makeAdaptivePath(job->first,mid)));
+                                    pendingJobs.push_back(makeJob(mid+1,job->last,makeAdaptivePath(mid+1,job->last)));
+                                } else {
+                                    pendingJobs.push_back(makeJob(tailFirst,job->last,makeAdaptivePath(tailFirst,job->last)));
+                                }
+                            }
+                        } else if(result.ok) {
+                            completedPieces.push_back({job->first,job->last,job->path});
+                        } else if(!result.cancelled && !isCancelRequested() && !workerFailed.load()) {
+                            {
+                                std::lock_guard<std::mutex> errorLock(resultMutex);
+                                if(error.isEmpty()) error=result.error;
+                            }
+                            if(result.rangeUnsupported) rangeUnsupported.store(true);
+                            workerFailed.store(true);
                         }
-                        if(result.rangeUnsupported)
-                            rangeUnsupported.store(true);
-                        workerFailed.store(true);
-                        break;
+                        if(pendingJobs.empty() && activeJobs.empty()) schedulerDone=true;
+                        schedulerCv.notify_all();
                     }
+                    if(isCancelRequested() || workerFailed.load()) break;
                 }
             }));
         }
+
+        // Watch live workers and split only when one range is materially slower than
+        // its peers. The prefix already written by that worker becomes a completed
+        // piece; only the unreceived tail is re-queued for another available worker.
+        int adaptiveSplitCount=0;
+        while(!schedulerDone && !isCancelRequested() && !workerFailed.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            std::lock_guard<std::mutex> lock(schedulerMutex);
+            if(activeJobs.size()<2 || adaptiveSplitCount>=16) continue;
+            const qint64 now=nowMs();
+            qint64 fastestSpeed=0;
+            for(const auto &job:activeJobs) {
+                const qint64 elapsed=qMax<qint64>(1,now-job->startedMs.load());
+                const qint64 speed=job->written.load()*1000/elapsed;
+                fastestSpeed=qMax(fastestSpeed,speed);
+            }
+            std::shared_ptr<SegmentJob> candidate;
+            qint64 candidateRemaining=0;
+            for(const auto &job:activeJobs) {
+                if(job->splitRequested.load()) continue;
+                const qint64 length=job->last-job->first+1;
+                const qint64 written=qBound<qint64>(0,job->written.load(),length);
+                const qint64 remaining=length-written;
+                const qint64 elapsed=now-job->startedMs.load();
+                if(length<8LL*1024*1024 || remaining<2LL*1024*1024 || elapsed<4000) continue;
+                const qint64 speed=written*1000/qMax<qint64>(1,elapsed);
+                const bool stalled=now-job->lastProgressMs.load()>=2500;
+                const bool muchSlower=(fastestSpeed>0 && speed*100<fastestSpeed*65);
+                if(!stalled && !muchSlower) continue;
+                if(remaining>candidateRemaining) {
+                    candidate=job;
+                    candidateRemaining=remaining;
+                }
+            }
+            if(candidate) {
+                candidate->splitRequested.store(true);
+                ++adaptiveSplitCount;
+            }
+        }
+        schedulerCv.notify_all();
         for(auto &worker:workers) worker.get();
 
         if(isCancelRequested()) {
+            for(const auto &f:adaptiveFiles) QFile::remove(f);
             if(cancelRequested_) {
                 for(const auto &f:segmentFiles) QFile::remove(f);
                 emit cancelled();
@@ -370,6 +515,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
             return;
         }
         if(workerFailed.load()) {
+            for(const auto &f:adaptiveFiles) QFile::remove(f);
             if(rangeUnsupported.load()) {
                 for(const auto &f:segmentFiles) QFile::remove(f);
                 emit failed(QStringLiteral("Server stopped honoring HTTP Range requests during segmented download."));
@@ -379,34 +525,56 @@ void HttpDownloader::run(const QString &url,const QString &destination){
             return;
         }
 
+        std::sort(completedPieces.begin(),completedPieces.end(),
+                  [](const SegmentPiece &a,const SegmentPiece &b){return a.first<b.first;});
+        qint64 nextExpected=0;
+        for(const auto &piece:completedPieces) {
+            const qint64 pieceSize=piece.last-piece.first+1;
+            if(piece.first!=nextExpected || pieceSize<=0 || QFileInfo(piece.path).size()!=pieceSize) {
+                for(const auto &f:adaptiveFiles) QFile::remove(f);
+                emit failed(QStringLiteral("Adaptive range integrity check failed; the file was not assembled."));
+                return;
+            }
+            nextExpected=piece.last+1;
+        }
+        if(nextExpected!=total) {
+            for(const auto &f:adaptiveFiles) QFile::remove(f);
+            emit failed(QStringLiteral("Adaptive range coverage check failed; the file was not assembled."));
+            return;
+        }
+
         emit progress(total,total,0);
         QFile out(partPath);
         if(!out.open(QIODevice::WriteOnly|QIODevice::Truncate)) {
             for(const auto &f:segmentFiles) QFile::remove(f);
+            for(const auto &f:adaptiveFiles) QFile::remove(f);
             emit failed(QStringLiteral("Unable to assemble segmented download."));
             return;
         }
-        for(const auto &f:segmentFiles) {
-            QFile in(f);
+        for(const auto &piece:completedPieces) {
+            QFile in(piece.path);
             if(!in.open(QIODevice::ReadOnly)) {
                 out.close();
                 for(const auto &x:segmentFiles) QFile::remove(x);
+                for(const auto &x:adaptiveFiles) QFile::remove(x);
                 emit failed(QStringLiteral("Unable to assemble segmented download."));
                 return;
             }
             while(!in.atEnd()) {
                 const QByteArray block=in.read(1024*1024);
-                if(block.isEmpty()&&!in.atEnd() || out.write(block)!=block.size()) {
+                if((block.isEmpty()&&!in.atEnd()) || out.write(block)!=block.size()) {
                     in.close(); out.close();
                     for(const auto &x:segmentFiles) QFile::remove(x);
+                    for(const auto &x:adaptiveFiles) QFile::remove(x);
                     emit failed(QStringLiteral("Unable to assemble segmented download."));
                     return;
                 }
             }
             in.close();
-            QFile::remove(f);
         }
         out.close();
+        for(const auto &f:segmentFiles) QFile::remove(f);
+        for(const auto &f:adaptiveFiles) QFile::remove(f);
         if (!expectedSha256_.isEmpty()) {
             QString actual;
             if (!verifySha256(partPath, expectedSha256_, &actual)) {
@@ -415,7 +583,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
                 return;
             }
         }
-        if(!QFile::rename(partPath,finalPath)){emit failed("Unable to finalize the downloaded file.");return;}
+        if(!QFile::rename(partPath,finalPath)){emit failed(QStringLiteral("Unable to finalize the downloaded file."));return;}
         emit completed(finalPath);
         return;
     }
