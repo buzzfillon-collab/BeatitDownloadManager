@@ -443,7 +443,14 @@ void HttpDownloader::run(const QString &url,const QString &destination){
                                     pendingJobs.push_back(makeJob(job->first,mid,makeAdaptivePath(job->first,mid)));
                                     pendingJobs.push_back(makeJob(mid+1,job->last,makeAdaptivePath(mid+1,job->last)));
                                 } else {
-                                    pendingJobs.push_back(makeJob(tailFirst,job->last,makeAdaptivePath(tailFirst,job->last)));
+                                    const qint64 tailLength=job->last-tailFirst+1;
+                                    if(tailLength>=4LL*1024*1024) {
+                                        const qint64 mid=tailFirst+(job->last-tailFirst)/2;
+                                        pendingJobs.push_back(makeJob(tailFirst,mid,makeAdaptivePath(tailFirst,mid)));
+                                        pendingJobs.push_back(makeJob(mid+1,job->last,makeAdaptivePath(mid+1,job->last)));
+                                    } else {
+                                        pendingJobs.push_back(makeJob(tailFirst,job->last,makeAdaptivePath(tailFirst,job->last)));
+                                    }
                                 }
                             }
                         } else if(result.ok) {
