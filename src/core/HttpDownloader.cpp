@@ -361,6 +361,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
                 pendingJobs.push_back(job);
             }
         }
+        schedulerDone=pendingJobs.empty();
         lastReportBytes.store(aggregateDone.load());
 
         const auto makeAdaptivePath=[&](qint64 first,qint64 last) {
@@ -377,7 +378,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
             return job;
         };
 
-        const int workerCount=qMin(connections,static_cast<int>(pendingJobs.size()));
+        const int workerCount=connections;
         std::vector<std::future<void>> workers;
         workers.reserve(workerCount);
         for(int worker=0;worker<workerCount;++worker) {
@@ -470,7 +471,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         while(!schedulerDone && !isCancelRequested() && !workerFailed.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
             std::lock_guard<std::mutex> lock(schedulerMutex);
-            if(activeJobs.size()<2 || adaptiveSplitCount>=16) continue;
+            if(activeJobs.empty() || adaptiveSplitCount>=16) continue;
             const qint64 now=nowMs();
             qint64 fastestSpeed=0;
             for(const auto &job:activeJobs) {
@@ -490,7 +491,8 @@ void HttpDownloader::run(const QString &url,const QString &destination){
                 const qint64 speed=written*1000/qMax<qint64>(1,elapsed);
                 const bool stalled=now-job->lastProgressMs.load()>=2500;
                 const bool muchSlower=(fastestSpeed>0 && speed*100<fastestSpeed*65);
-                if(!stalled && !muchSlower) continue;
+                const bool idleWorker=(activeJobs.size()<static_cast<size_t>(connections) && elapsed>=6000);
+                if(!stalled && !muchSlower && !idleWorker) continue;
                 if(remaining>candidateRemaining) {
                     candidate=job;
                     candidateRemaining=remaining;
