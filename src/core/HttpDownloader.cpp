@@ -475,7 +475,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         // its peers. The prefix already written by that worker becomes a completed
         // piece; only the unreceived tail is re-queued for another available worker.
         int adaptiveSplitCount=0;
-        while(!schedulerDone && !isCancelRequested() && !workerFailed.load()) {
+        while(!schedulerDone && !isCancelRequested() && !workerFailed.load() && connections>1) {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
             std::lock_guard<std::mutex> lock(schedulerMutex);
             if(activeJobs.empty() || adaptiveSplitCount>=16) continue;
