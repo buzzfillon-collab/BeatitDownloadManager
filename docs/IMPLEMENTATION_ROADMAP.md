@@ -11,7 +11,7 @@ This is the working feature plan, ordered by user value and dependency. FTP/FTPS
 
 ## Existing capability — HTTP segment scheduling
 - **Already implemented:** for a range-capable known-size file, the engine partitions the file into up to 32 stable byte ranges (subject to a 1 MiB minimum target range size), runs 1–8 concurrent workers, and each worker claims the next pending range as soon as it finishes its current range. Completed range files are retained for resume.
-- **Not the same as IDM's adaptive algorithm:** Beatit does not dynamically split the largest remaining range while a download is already running. Treat adaptive range splitting as an optional later optimization, not as an entirely missing segmented-download feature.
+- **Adaptive live splitting implemented:** the scheduler watches active ranges and, when a large range stalls or falls materially behind its peers (or worker slots are idle), it preserves the received prefix and requeues the remaining tail. It is bounded to 16 split events per download, retains the configured 1–8 worker cap, validates exact contiguous byte coverage before assembly, and discards non-stable adaptive pieces on pause so restart recovery safely re-fetches any affected base range.
 
 ## Batch B — Browser and site workflows
 6. **Download All / link extraction**: parse links from a supplied page or pasted HTML, filter by extension/domain, show a selection preview, deduplicate normalized URLs, and enqueue only selected links. Respect robots/access controls; do not bypass authentication or site restrictions.
