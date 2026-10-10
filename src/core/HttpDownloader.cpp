@@ -343,7 +343,7 @@ void HttpDownloader::run(const QString &url,const QString &destination){
         std::atomic<quint64> adaptiveId{0};
         std::mutex resultMutex;
         QString error;
-        bool schedulerDone=false;
+        std::atomic_bool schedulerDone{false};
 
         for(int i=0;i<bounds.size();++i) {
             const qint64 first=bounds[i].first;
@@ -512,7 +512,12 @@ void HttpDownloader::run(const QString &url,const QString &destination){
                 for(const auto &f:segmentFiles) QFile::remove(f);
                 emit cancelled();
             } else {
-                emit paused(aggregateDone.load());
+                qint64 retained=0;
+                for(int i=0;i<bounds.size();++i) {
+                    const qint64 expected=bounds[i].second-bounds[i].first+1;
+                    if(QFileInfo(segmentFiles[i]).size()==expected) retained+=expected;
+                }
+                emit paused(retained);
             }
             return;
         }
